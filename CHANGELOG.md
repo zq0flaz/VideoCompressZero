@@ -1,3 +1,10 @@
+## 3.1.4+202507
+
+- Forked from video_compress 3.1.4
+- Android API 35 support
+- Gradle 8 compatibility
+- Bug fixes for AndroidManifest merge.
+
 ## 3.1.4
 
 - Removes references to v1 Flutter Android embedding classes.

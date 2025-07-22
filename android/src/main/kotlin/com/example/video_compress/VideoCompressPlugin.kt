@@ -49,7 +49,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 val path = call.argument<String>("path")
                 val quality = call.argument<Int>("quality")!!
                 val position = call.argument<Int>("position")!! // to long
-                ThumbnailUtility(channelName).getByteThumbnail(path!!, quality, position.toLong(), result)
+                ThumbnailUtility(channelName).getByteThumbnail(context, path!!, quality, position.toLong(), result)
             }
             "getFileThumbnail" -> {
                 val path = call.argument<String>("path")
@@ -168,7 +168,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                             }
 
                             override fun onTranscodeFailed(exception: Throwable) {
-                                result.success(null)
+                                result.error("video_compress_transcode", "Failed to transcode video", exception.message)
                             }
                         }).transcode()
             }

@@ -76,28 +76,34 @@ class Utility(private val channelName: String) {
         return json
     }
 
-    fun getBitmap(path: String, position: Long, result: MethodChannel.Result): Bitmap {
+    fun getBitmap(context: Context, path: String, position: Long, result: MethodChannel.Result): Bitmap {
         var bitmap: Bitmap? = null
         val retriever = MediaMetadataRetriever()
 
         try {
-            retriever.setDataSource(path)
+            val uri = Uri.fromFile(File(path))
+            retriever.setDataSource(context, uri)
             bitmap = retriever.getFrameAtTime(position, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
         } catch (ex: IllegalArgumentException) {
-            result.error(channelName, "Assume this is a corrupt video file", null)
+            result.error("video_compress_get_bitmap", "Invalid path or corrupt video file", ex.message)
         } catch (ex: RuntimeException) {
-            result.error(channelName, "Assume this is a corrupt video file", null)
+            result.error("video_compress_get_bitmap", "Failed to get bitmap", ex.message)
         } finally {
             try {
                 retriever.release()
             } catch (ex: RuntimeException) {
-                result.error(channelName, "Ignore failures while cleaning up", null)
+                // Ignore failures while cleaning up.
             }
         }
 
-        if (bitmap == null) result.success(emptyArray<Int>())
+        if (bitmap == null) {
+            result.error("video_compress_get_bitmap", "Failed to get bitmap, bitmap is null", null)
+            // Should not happen, but as a fallback
+            return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        }
 
-        val width = bitmap!!.width
+
+        val width = bitmap.width
         val height = bitmap.height
         val max = Math.max(width, height)
         if (max > 512) {
@@ -107,7 +113,7 @@ class Utility(private val channelName: String) {
             bitmap = Bitmap.createScaledBitmap(bitmap, w, h, true)
         }
 
-        return bitmap!!
+        return bitmap
     }
 
     fun getFileNameWithGifExtension(path: String): String {

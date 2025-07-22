@@ -19,31 +19,46 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
     }
     
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        let args = call.arguments as? Dictionary<String, Any>
+        guard let args = call.arguments as? [String: Any] else {
+            result(FlutterError(code: channelName, message: "Invalid arguments", details: nil))
+            return
+        }
+
         switch call.method {
         case "getByteThumbnail":
-            let path = args!["path"] as! String
-            let quality = args!["quality"] as! NSNumber
-            let position = args!["position"] as! NSNumber
+            guard let path = args["path"] as? String,
+                  let quality = args["quality"] as? NSNumber,
+                  let position = args["position"] as? NSNumber else {
+                result(FlutterError(code: channelName, message: "Invalid arguments for getByteThumbnail", details: nil))
+                return
+            }
             getByteThumbnail(path, quality, position, result)
         case "getFileThumbnail":
-            let path = args!["path"] as! String
-            let quality = args!["quality"] as! NSNumber
-            let position = args!["position"] as! NSNumber
+            guard let path = args["path"] as? String,
+                  let quality = args["quality"] as? NSNumber,
+                  let position = args["position"] as? NSNumber else {
+                result(FlutterError(code: channelName, message: "Invalid arguments for getFileThumbnail", details: nil))
+                return
+            }
             getFileThumbnail(path, quality, position, result)
         case "getMediaInfo":
-            let path = args!["path"] as! String
+            guard let path = args["path"] as? String else {
+                result(FlutterError(code: channelName, message: "Invalid arguments for getMediaInfo", details: nil))
+                return
+            }
             getMediaInfo(path, result)
         case "compressVideo":
-            let path = args!["path"] as! String
-            let quality = args!["quality"] as! NSNumber
-            let deleteOrigin = args!["deleteOrigin"] as! Bool
-            let startTime = args!["startTime"] as? Double
-            let duration = args!["duration"] as? Double
-            let includeAudio = args!["includeAudio"] as? Bool
-            let frameRate = args!["frameRate"] as? Int
-            compressVideo(path, quality, deleteOrigin, startTime, duration, includeAudio,
-                          frameRate, result)
+            guard let path = args["path"] as? String,
+                  let quality = args["quality"] as? NSNumber,
+                  let deleteOrigin = args["deleteOrigin"] as? Bool else {
+                result(FlutterError(code: channelName, message: "Invalid arguments for compressVideo", details: nil))
+                return
+            }
+            let startTime = args["startTime"] as? Double
+            let duration = args["duration"] as? Double
+            let includeAudio = args["includeAudio"] as? Bool
+            let frameRate = args["frameRate"] as? Int
+            compressVideo(path, quality, deleteOrigin, startTime, duration, includeAudio, frameRate, result)
         case "cancelCompression":
             cancelCompression(result)
         case "deleteAllCache":
@@ -56,22 +71,29 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         }
     }
     
-    private func getBitMap(_ path: String,_ quality: NSNumber,_ position: NSNumber,_ result: FlutterResult)-> Data?  {
+    private func getBitMap(_ path: String, _ quality: NSNumber, _ position: NSNumber, _ result: FlutterResult) -> Data? {
         let url = Utility.getPathUrl(path)
         let asset = avController.getVideoAsset(url)
-        guard let track = avController.getTrack(asset) else { return nil }
-        
-        let assetImgGenerate = AVAssetImageGenerator(asset: asset)
-        assetImgGenerate.appliesPreferredTrackTransform = true
-        
-        let timeScale = CMTimeScale(track.nominalFrameRate)
-        let time = CMTimeMakeWithSeconds(Float64(truncating: position),preferredTimescale: timeScale)
-        guard let img = try? assetImgGenerate.copyCGImage(at:time, actualTime: nil) else {
+        guard let track = avController.getTrack(asset) else {
+            result(FlutterError(code: channelName, message: "Failed to get track", details: nil))
             return nil
         }
-        let thumbnail = UIImage(cgImage: img)
-        let compressionQuality = CGFloat(0.01 * Double(truncating: quality))
-        return thumbnail.jpegData(compressionQuality: compressionQuality)
+
+        let assetImgGenerate = AVAssetImageGenerator(asset: asset)
+        assetImgGenerate.appliesPreferredTrackTransform = true
+
+        let timeScale = track.nominalFrameRate
+        let time = CMTimeMakeWithSeconds(Float64(truncating: position), preferredTimescale: CMTimeScale(timeScale))
+        
+        do {
+            let img = try assetImgGenerate.copyCGImage(at: time, actualTime: nil)
+            let thumbnail = UIImage(cgImage: img)
+            let compressionQuality = CGFloat(0.01 * Double(truncating: quality))
+            return thumbnail.jpegData(compressionQuality: compressionQuality)
+        } catch {
+            result(FlutterError(code: channelName, message: "Failed to generate thumbnail", details: error.localizedDescription))
+            return nil
+        }
     }
     
     private func getByteThumbnail(_ path: String,_ quality: NSNumber,_ position: NSNumber,_ result: FlutterResult) {
@@ -223,33 +245,31 @@ public class SwiftVideoCompressPlugin: NSObject, FlutterPlugin {
         let timer = Timer.scheduledTimer(timeInterval: 0.1, target: self, selector: #selector(self.updateProgress),
                                          userInfo: exporter, repeats: true)
         
-        exporter.exportAsynchronously(completionHandler: {
+        exporter.exportAsynchronously {
             timer.invalidate()
-            if(self.stopCommand) {
-                self.stopCommand = false
+            
+            switch exporter.status {
+            case .completed:
+                if deleteOrigin {
+                    Utility.deleteFile(path)
+                }
+                var json = self.getMediaInfoJson(Utility.excludeEncoding(compressionUrl.path))
+                json["isCancel"] = false
+                let jsonString = Utility.keyValueToJson(json)
+                result(jsonString)
+            case .failed:
+                result(FlutterError(code: self.channelName, message: "Compression failed", details: exporter.error?.localizedDescription))
+            case .cancelled:
                 var json = self.getMediaInfoJson(path)
                 json["isCancel"] = true
                 let jsonString = Utility.keyValueToJson(json)
-                return result(jsonString)
+                result(jsonString)
+            default:
+                break
             }
-            if deleteOrigin {
-                let fileManager = FileManager.default
-                do {
-                    if fileManager.fileExists(atPath: path) {
-                        try fileManager.removeItem(atPath: path)
-                    }
-                    self.exporter = nil
-                    self.stopCommand = false
-                }
-                catch let error as NSError {
-                    print(error)
-                }
-            }
-            var json = self.getMediaInfoJson(Utility.excludeEncoding(compressionUrl.path))
-            json["isCancel"] = false
-            let jsonString = Utility.keyValueToJson(json)
-            result(jsonString)
-        })
+            self.exporter = nil
+            self.stopCommand = false
+        }
         self.exporter = exporter
     }
     

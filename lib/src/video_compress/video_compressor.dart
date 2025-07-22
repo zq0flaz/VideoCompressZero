@@ -1,18 +1,35 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:video_compress/src/progress_callback/compress_mixin.dart';
-import 'package:video_compress/video_compress.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:video_compress_zero/src/progress_callback/compress_mixin.dart';
+import 'package:video_compress_zero/video_compress_zero.dart';
 
-abstract class IVideoCompress extends CompressMixin {}
+abstract class IVideoCompress extends CompressMixin {
+  Future<bool> requestPermission();
+}
 
 class _VideoCompressImpl extends IVideoCompress {
   _VideoCompressImpl._() {
     initProcessCallback();
+  }
+
+  @override
+  Future<bool> requestPermission() async {
+    if (Platform.isAndroid) {
+      var status = await Permission.storage.status;
+      if (status.isDenied) {
+        await Permission.storage.request();
+      }
+      if (await Permission.videos.isRestricted) {
+        await Permission.videos.request();
+      }
+      return status.isGranted;
+    }
+    return true;
   }
 
   static _VideoCompressImpl? _instance;
@@ -35,17 +52,16 @@ extension Compress on IVideoCompress {
   }
 
   Future<T?> _invoke<T>(String name, [Map<String, dynamic>? params]) async {
-    T? result;
     try {
-      result = params != null
+      return params != null
           ? await channel.invokeMethod(name, params)
           : await channel.invokeMethod(name);
     } on PlatformException catch (e) {
       debugPrint('''Error from VideoCompress: 
       Method: $name
       $e''');
+      rethrow;
     }
-    return result;
   }
 
   /// getByteThumbnail return [Future<Uint8List>],

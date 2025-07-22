@@ -1,15 +1,16 @@
-name: video_compress
-description: Light library of video manipulation of Flutter. Compress video, remove audio, get video thumbnail from dart code.
-version: 3.1.4
-homepage: https://github.com/jonataslaw/VideoCompress
+name: video_compress_zero
+description: A fork of the original 'video_compress' package version 3.1.4, updated to support Android API 35 and Gradle 8, with improved Android compatibility and fixes.
+version: 3.1.4+202507
+homepage: https://github.com/zq0flaz/VideoCompressZero
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
-  flutter: ">=2.0.0"
+  flutter: ">=3.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  permission_handler: ^11.3.1
 
 # dev_dependencies:
 #   flutter_test:

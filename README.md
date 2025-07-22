@@ -1,3 +1,23 @@
+# video_compress_zero
+
+> ✅ This package is a **fork** of the original [`video_compress`]
+(https://github.com/jonataslaw/VideoCompress), original pub dev (https://pub.dev/packages/video_compress) (version 3.1.4).
+
+---
+
+## ⚠️ Status: Experimental
+
+> **Note:** This package has not been fully tested on all platforms yet. Please use with caution and report any issues found.
+
+---
+
+## 📌 Why This Fork?
+
+This fork was created to:
+- ✅ Support **Android API Level 35 (Android 15)**
+- ✅ Ensure compatibility with **Gradle 8.0+**
+- 🔧 Fix permission issues during the Android manifest merge
+
 # video_compress
 
 Compress videos, remove audio, manipulate thumbnails, and make your video compatible with all platforms through this lightweight and efficient library.

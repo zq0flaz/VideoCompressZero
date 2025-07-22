@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'package:file_selector/file_selector.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:video_compress/video_compress.dart';
+import 'package:video_compress_zero/video_compress_zero.dart';
 
 class VideoThumbnail extends StatefulWidget {
   @override
@@ -18,9 +18,10 @@ class _VideoThumbnailState extends State<VideoThumbnail> {
       var file;
 
       if (Platform.isMacOS) {
-        final typeGroup =
-            XTypeGroup(label: 'videos', extensions: ['mov', 'mp4']);
-        file = await openFile(acceptedTypeGroups: [typeGroup]);
+        // final typeGroup =
+        //     XTypeGroup(label: 'videos', extensions: ['mov', 'mp4']);
+        file = await FilePicker.platform.pickFiles(
+            dialogTitle: "videos", allowedExtensions: ['mov', 'mp4']);
       } else {
         final picker = ImagePicker();
         var pickedFile = await picker.pickVideo(source: ImageSource.gallery);
