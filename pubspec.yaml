@@ -23,7 +23,8 @@ flutter:
   plugin:
     platforms:
       android:
-        package: com.example.video_compress
+        #package: com.example.video_compress
+        package: com.zflash.video_compress
         pluginClass: VideoCompressPlugin
       ios:
         pluginClass: VideoCompressPlugin
