@@ -9,9 +9,12 @@
 
 > **Note:** This package has not been fully tested on all platforms yet. Please use with caution and report any issues found.
 
+🚧 iOS: Not tested
+🚧 macOS: Not tested
+
 ---
 
-## 📌 Why This Fork?
+## 🔧 What's Different from the Original?
 
 This fork was created to:
 - ✅ Support **Android API Level 35 (Android 15)**
@@ -49,7 +52,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  video_compress: ^3.1.0
+  video_compress_zero: 3.1.4+202507
 ```
 
 ### 2. Install it
@@ -67,7 +70,7 @@ $  pub get
 Now in your `Dart` code, you can use: 
 
 ````dart
-import 'package:video_compress/video_compress.dart';
+import 'package:video_compress_zero/video_compress_zero.dart';
 ````
 
 # How to use
@@ -75,7 +78,7 @@ import 'package:video_compress/video_compress.dart';
 ### Imports
 
 ````dart
-import 'package:video_compress/video_compress.dart';
+import 'package:video_compress_zero/video_compress_zero.dart';
     
 ````
 
