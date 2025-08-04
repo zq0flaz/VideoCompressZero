@@ -1,4 +1,4 @@
-#import "VideoCompressPlugin.h"
+#import "VideoCompressZeroPlugin.h"
 #import <video_compress_zero/video_compress_zero-Swift.h>
 
 @implementation VideoCompressZeroPlugin
