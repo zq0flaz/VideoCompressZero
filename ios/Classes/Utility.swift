@@ -3,7 +3,7 @@ class Utility: NSObject {
     static let fileManager = FileManager.default
     
     static func basePath()->String {
-        let path = "\(NSTemporaryDirectory())video_compress"
+        let path = "\(NSTemporaryDirectory())video_compress_zero"
         do {
             if !fileManager.fileExists(atPath: path) {
                 try! fileManager.createDirectory(atPath: path,

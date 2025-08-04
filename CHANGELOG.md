@@ -1,3 +1,7 @@
+## 3.1.4+202507001
+
+- Fix issue The plugin doesn't have a main class defined
+
 ## 3.1.4+202507
 
 - Forked from video_compress 3.1.4
