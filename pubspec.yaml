@@ -27,9 +27,9 @@ flutter:
         package: com.zflash.video_compress
         pluginClass: VideoCompressPlugin
       ios:
-        pluginClass: VideoCompressPlugin
+        pluginClass: VideoCompressZeroPlugin
       macos:
-        pluginClass: VideoCompressPlugin
+        pluginClass: VideoCompressZeroPlugin
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:
