@@ -14,7 +14,7 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "video_compress_zero", binaryMessenger: registrar.messenger())
-        let instance = SwiftVideoCompressPlugin(channel: channel)
+        let instance = SwiftVideoCompressZeroPlugin(channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)
     }
     
