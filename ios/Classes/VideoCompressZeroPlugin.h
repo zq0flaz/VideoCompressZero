@@ -1,4 +1,4 @@
 #import <Flutter/Flutter.h>
 
-@interface VideoCompressPlugin : NSObject<FlutterPlugin>
+@interface VideoCompressZeroPlugin : NSObject<FlutterPlugin>
 @end

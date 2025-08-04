@@ -11,11 +11,11 @@ A new flutter plugin project.
                        DESC
   s.homepage         = 'https://github.com/zq0flaz/VideoCompressZero'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Jonny Borges' => 'jonataborges01@gmail.com' }
+  s.author           = { 'Zq' => '' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'Flutter'
-  s.ios.deployment_target = '8.0'
+  s.ios.deployment_target = '12.0'
 end
 
