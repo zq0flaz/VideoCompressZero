@@ -1,21 +1,20 @@
 class Utility: NSObject {
     static let fileManager = FileManager.default
-
-    static func basePath() -> String {
+    
+    static func basePath()->String {
         let path = "\(NSTemporaryDirectory())video_compress_zero"
-        if !fileManager.fileExists(atPath: path) {
-            do {
-                try fileManager.createDirectory(atPath: path,
-                                                withIntermediateDirectories: true,
-                                                attributes: nil)
-            } catch {
-                // Handle error: could log or propagate if desired
+        do {
+            if !fileManager.fileExists(atPath: path) {
+                try! fileManager.createDirectory(atPath: path,
+                                                 withIntermediateDirectories: true, attributes: nil)
             }
-        }
+        } catch {
+                print("Failed to create directory: \(error)")
+            }
         return path
     }
-
-    static func stripFileExtension(_ fileName: String) -> String {
+    
+    static func stripFileExtension(_ fileName:String)->String {
         var components = fileName.components(separatedBy: ".")
         if components.count > 1 {
             components.removeLast()
@@ -24,44 +23,48 @@ class Utility: NSObject {
             return fileName
         }
     }
-
-    static func getFileName(_ path: String) -> String {
+    static func getFileName(_ path: String)->String {
         return stripFileExtension((path as NSString).lastPathComponent)
     }
-
-    static func getPathUrl(_ path: String) -> URL {
+    
+    static func getPathUrl(_ path: String)->URL {
         return URL(fileURLWithPath: excludeFileProtocol(path))
     }
-
-    static func excludeFileProtocol(_ path: String) -> String {
+    
+    static func excludeFileProtocol(_ path: String)->String {
         return path.replacingOccurrences(of: "file://", with: "")
     }
-
-    static func excludeEncoding(_ path: String) -> String {
-        return path.removingPercentEncoding ?? path
+    
+    static func excludeEncoding(_ path: String) -> String{
+        return path.removingPercentEncoding!
     }
-
-    static func keyValueToJson(_ keyAndValue: [String: Any?]) -> String {
+    
+    static func keyValueToJson(_ keyAndValue: [String : Any?])->String {
         do {
-            let data = try JSONSerialization.data(withJSONObject: keyAndValue as NSDictionary, options: [])
-            if let jsonString = String(data: data, encoding: .utf8) {
-                return jsonString
-            }
+            let data = try! JSONSerialization.data(withJSONObject: keyAndValue as NSDictionary, options: [])
+            let jsonString = NSString(data:data as Data,encoding: String.Encoding.utf8.rawValue)
+            return jsonString! as String
         } catch {
-            // Handle error: could log or return "{}"
+            print("Failed to serialize JSON: \(error)")
         }
         return "{}"
     }
-
+    
     static func deleteFile(_ path: String, clear: Bool = false) {
         let url = getPathUrl(path)
-        let actualPath = url.path
-        if fileManager.fileExists(atPath: actualPath) {
-            try? fileManager.removeItem(atPath: actualPath)
+        if fileManager.fileExists(atPath: url.absoluteString) {
+            do {
+                try? fileManager.removeItem(at: url)
+            } catch {
+                print("Failed to delete file: \(error)")
+            }
         }
         if clear {
-            try? fileManager.removeItem(atPath: actualPath)
+            do {
+                try? fileManager.removeItem(at: url)
+            } catch {
+                print("Failed to delete file: \(error)")
+            }
         }
     }
 }
-

@@ -67,7 +67,10 @@ class _MyHomePageState extends State<MyHomePage> {
       return;
     }
     await VideoCompress.setLogLevel(0);
-    await VideoCompress.cancelCompression();
+    try {
+      await VideoCompress.cancelCompression();
+    } catch (_) {}
+
     final info = await VideoCompress.compressVideo(
       file.path,
       quality: VideoQuality.Res960x540Quality,

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'subscription.dart';
@@ -5,13 +7,14 @@ import 'subscription.dart';
 class CompressMixin {
   final compressProgress$ = ObservableBuilder<double>();
   final _channel = const MethodChannel('video_compress');
+  final _channelZero = const MethodChannel('video_compress_zero');
 
   @protected
   void initProcessCallback() {
     _channel.setMethodCallHandler(_progressCallback);
   }
 
-  MethodChannel get channel => _channel;
+  MethodChannel get channel => Platform.isAndroid ? _channel : _channelZero;
 
   bool _isCompressing = false;
 

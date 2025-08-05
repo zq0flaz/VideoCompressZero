@@ -82,7 +82,7 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
         let assetImgGenerate = AVAssetImageGenerator(asset: asset)
         assetImgGenerate.appliesPreferredTrackTransform = true
 
-        let timeScale = track.nominalFrameRate
+        let timeScale = asset.duration.timescale // track.nominalFrameRate
         let time = CMTimeMakeWithSeconds(Float64(truncating: position), preferredTimescale: CMTimeScale(timeScale))
         
         do {
@@ -105,7 +105,7 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
     private func getFileThumbnail(_ path: String,_ quality: NSNumber,_ position: NSNumber,_ result: FlutterResult) {
         let fileName = Utility.getFileName(path)
         let url = Utility.getPathUrl("\(Utility.basePath())/\(fileName).jpg")
-        Utility.deleteFile(path)
+        Utility.deleteFile(url.path)
         if let bitmap = getBitMap(path,quality,position,result) {
             guard (try? bitmap.write(to: url)) != nil else {
                 return result(FlutterError(code: channelName,message: "getFileThumbnail error",details: "getFileThumbnail error"))
@@ -224,7 +224,11 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
         
         let session = getComposition(isIncludeAudio, timeRange, sourceVideoTrack!)
         
-        let exporter = AVAssetExportSession(asset: session, presetName: getExportPreset(quality))!
+        guard let exporter = AVAssetExportSession(asset: session, presetName: getExportPreset(quality)) else {
+            result(FlutterError(code: channelName, message: "Failed to create exporter", details: nil))
+            return
+        }
+
         
         exporter.outputURL = compressionUrl
         exporter.outputFileType = AVFileType.mp4
