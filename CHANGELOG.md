@@ -1,3 +1,11 @@
+## 3.1.4+202508001
+- Bug fix error on vivo y16 
+- (test) fix orientation on older IOS
+
+## 3.1.4+202507003
+
+- Fix & testing for ios (inprogress)
+
 ## 3.1.4+202507002
 
 - Fix & testing for ios (inprogress)

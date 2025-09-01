@@ -87,7 +87,13 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
         
         do {
             let img = try assetImgGenerate.copyCGImage(at: time, actualTime: nil)
-            let thumbnail = UIImage(cgImage: img)
+            var thumbnail = UIImage(cgImage: img)
+
+            let orientationDegrees = avController.getVideoOrientation(path) ?? 0
+            if orientationDegrees != 0 {
+                thumbnail = rotateUIImage(thumbnail, degrees: orientationDegrees)
+            }
+
             let compressionQuality = CGFloat(0.01 * Double(truncating: quality))
             return thumbnail.jpegData(compressionQuality: compressionQuality)
         } catch {

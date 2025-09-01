@@ -3,14 +3,15 @@ class Utility: NSObject {
     
     static func basePath()->String {
         let path = "\(NSTemporaryDirectory())video_compress_zero"
-        do {
-            if !fileManager.fileExists(atPath: path) {
-                try! fileManager.createDirectory(atPath: path,
+        if !fileManager.fileExists(atPath: path) {
+            do {
+                try fileManager.createDirectory(atPath: path,
                                                  withIntermediateDirectories: true, attributes: nil)
-            }
-        } catch {
+            
+            } catch {
                 print("Failed to create directory: \(error)")
             }
+        }
         return path
     }
     
@@ -36,12 +37,12 @@ class Utility: NSObject {
     }
     
     static func excludeEncoding(_ path: String) -> String{
-        return path.removingPercentEncoding!
+        return path.removingPercentEncoding ?? path
     }
     
     static func keyValueToJson(_ keyAndValue: [String : Any?])->String {
         do {
-            let data = try! JSONSerialization.data(withJSONObject: keyAndValue as NSDictionary, options: [])
+            let data = try JSONSerialization.data(withJSONObject: keyAndValue as NSDictionary, options: [])
             let jsonString = NSString(data:data as Data,encoding: String.Encoding.utf8.rawValue)
             return jsonString! as String
         } catch {

@@ -12,24 +12,30 @@ class ThumbnailUtility(channelName: String) {
 
     fun getByteThumbnail(context: Context, path: String, quality: Int, position: Long, result: MethodChannel.Result) {
         val bmp = utility.getBitmap(context, path, position, result)
-
+        if (bmp.width == 1 && bmp.height == 1) {
+            result.error("video_compress_thumbnail", "Failed to extract thumbnail", null)
+            return
+        }
         val stream = ByteArrayOutputStream()
         bmp.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         val byteArray = stream.toByteArray()
         bmp.recycle()
-        result.success(byteArray.toList().toByteArray())
+        result.success(byteArray)
     }
 
     fun getFileThumbnail(context: Context, path: String, quality: Int, position: Long,
                              result: MethodChannel.Result) {
         val bmp = utility.getBitmap(context, path, position, result)
-
+        if (bmp.width == 1 && bmp.height == 1) {
+            result.error("video_compress_thumbnail", "Failed to extract thumbnail", null)
+            return
+        }
         val dir = context.getExternalFilesDir("video_compress")
 
         if (dir != null && !dir.exists()) dir.mkdirs()
 
-        val file = File(dir, path.substring(path.lastIndexOf('/'),
-                path.lastIndexOf('.')) + ".jpg")
+        val name = File(path).nameWithoutExtension + ".jpg"
+        val file = File(dir, name)
         utility.deleteFile(file)
 
         val stream = ByteArrayOutputStream()

@@ -11,7 +11,32 @@ import java.io.File
 
 class Utility(private val channelName: String) {
 
-    fun isLandscapeImage(orientation: Int) = orientation != 90 && orientation != 270
+    fun isLandscapeImage(orientation: Int) = orientation == 90 || orientation == 270 //orientation != 90 && orientation != 270
+
+    private fun buildUri(path: String): Uri {
+        val parsed = Uri.parse(path)
+        return if (parsed.scheme.isNullOrEmpty()) Uri.fromFile(File(path)) else parsed
+    }
+
+    @Throws(IllegalArgumentException::class, SecurityException::class, RuntimeException::class)
+    private fun setRetrieverDataSource(context: Context, retriever: MediaMetadataRetriever, path: String) {
+        val uri = buildUri(path)
+        try {
+            when (uri.scheme) {
+                "content", "android.resource", "file" -> retriever.setDataSource(context, uri)
+                else -> retriever.setDataSource(path)
+            }
+        } catch (se: SecurityException) {
+            // Fallback: use a FileDescriptor for content Uris if readable
+            if ("content" == uri.scheme) {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                    retriever.setDataSource(afd.fileDescriptor)
+                    return
+                }
+            }
+            throw se
+        }
+    }
 
     fun deleteFile(file: File) {
         if (file.exists()) {
@@ -20,60 +45,67 @@ class Utility(private val channelName: String) {
     }
 
     fun timeStrToTimestamp(time: String): Long {
-        val timeArr = time.split(":")
-        val hour = Integer.parseInt(timeArr[0])
-        val min = Integer.parseInt(timeArr[1])
-        val secArr = timeArr[2].split(".")
-        val sec = Integer.parseInt(secArr[0])
-        val mSec = Integer.parseInt(secArr[1])
+        val parts = time.split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull() ?: 0
+        val min = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        val secParts = parts.getOrNull(2)?.split(".") ?: listOf("0")
+        val sec = secParts.getOrNull(0)?.toIntOrNull() ?: 0
+        val mSec = secParts.getOrNull(1)?.toIntOrNull() ?: 0
 
-        val timeStamp = (hour * 3600 + min * 60 + sec) * 1000 + mSec
-        return timeStamp.toLong()
+        return ((hour * 3600 + min * 60 + sec) * 1000 + mSec).toLong()
     }
 
     fun getMediaInfoJson(context: Context, path: String): JSONObject {
         val file = File(path)
         val retriever = MediaMetadataRetriever()
 
-        retriever.setDataSource(context, Uri.fromFile(file))
+        try {
+            setRetrieverDataSource(context, retriever, path)
 
-        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-        val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: ""
-        val author = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_AUTHOR) ?: ""
-        val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-        val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-        val duration = java.lang.Long.parseLong(durationStr)
-        var width = java.lang.Long.parseLong(widthStr)
-        var height = java.lang.Long.parseLong(heightStr)
-        val filesize = file.length()
-        val orientation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-        } else {
-            null
+            val durationStr =
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) ?: ""
+            val author = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_AUTHOR) ?: ""
+            val widthStr =
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+            val heightStr =
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+            val duration = durationStr?.toLongOrNull() ?: 0L
+            var width = widthStr?.toLongOrNull() ?: 0L
+            var height = heightStr?.toLongOrNull() ?: 0L
+            val filesize = file.length()
+            val orientation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+            } else {
+                null
+            }
+            val ori = orientation?.toIntOrNull()
+            if (ori != null && isLandscapeImage(ori)) {
+                val tmp = width
+                width = height
+                height = tmp
+            }
+
+
+            val json = JSONObject()
+
+            json.put("path", path)
+            json.put("title", title)
+            json.put("author", author)
+            json.put("width", width)
+            json.put("height", height)
+            json.put("duration", duration)
+            json.put("filesize", filesize)
+            if (ori != null) {
+                json.put("orientation", ori)
+            }
+
+            return json
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: RuntimeException) { /* ignore */ }
         }
-        val ori = orientation?.toIntOrNull()
-        if (ori != null && isLandscapeImage(ori)) {
-            val tmp = width
-            width = height
-            height = tmp
-        }
-
-        retriever.release()
-
-        val json = JSONObject()
-
-        json.put("path", path)
-        json.put("title", title)
-        json.put("author", author)
-        json.put("width", width)
-        json.put("height", height)
-        json.put("duration", duration)
-        json.put("filesize", filesize)
-        if (ori != null) {
-            json.put("orientation", ori)
-        }
-
-        return json
     }
 
     fun getBitmap(context: Context, path: String, position: Long, result: MethodChannel.Result): Bitmap {
@@ -81,8 +113,7 @@ class Utility(private val channelName: String) {
         val retriever = MediaMetadataRetriever()
 
         try {
-            val uri = Uri.fromFile(File(path))
-            retriever.setDataSource(context, uri)
+            setRetrieverDataSource(context, retriever, path)
             bitmap = retriever.getFrameAtTime(position, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
         } catch (ex: IllegalArgumentException) {
             result.error("video_compress_get_bitmap", "Invalid path or corrupt video file", ex.message)
@@ -110,7 +141,12 @@ class Utility(private val channelName: String) {
             val scale = 512f / max
             val w = Math.round(scale * width)
             val h = Math.round(scale * height)
-            bitmap = Bitmap.createScaledBitmap(bitmap, w, h, true)
+            val scaled = Bitmap.createScaledBitmap(bitmap, w, h, true)
+            if (scaled != bitmap) {
+                bitmap.recycle()
+            }
+            bitmap = scaled
+            
         }
 
         return bitmap
@@ -135,6 +171,8 @@ class Utility(private val channelName: String) {
 
     fun deleteAllCache(context: Context, result: MethodChannel.Result) {
         val dir = context.getExternalFilesDir("video_compress")
-        result.success(dir?.deleteRecursively())
+        val success = dir?.deleteRecursively() ?: false
+        dir?.mkdirs()
+        result.success(success)
     }
 }
