@@ -7,7 +7,7 @@ class AvController: NSObject {
         return AVURLAsset(url: url)
     }
     
-    public func getTrack(_ asset: AVURLAsset) async ->AVAssetTrack? {
+    public func getTrack(_ asset: AVURLAsset) ->AVAssetTrack? {
         do {
             var track : AVAssetTrack? = nil
             let group = DispatchGroup()

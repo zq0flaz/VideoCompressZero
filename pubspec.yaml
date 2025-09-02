@@ -1,6 +1,6 @@
 name: video_compress_zero
 description: A fork of the original 'video_compress' package version 3.1.4, updated to support Android API 35 and Gradle 8, with improved Android compatibility and fixes.
-version: 3.1.4+202507003
+version: 3.1.4+202508001
 homepage: https://github.com/zq0flaz/VideoCompressZero
 
 environment:

@@ -70,6 +70,36 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
             result(FlutterMethodNotImplemented)
         }
     }
+
+    private func rotateUIImage(_ image: UIImage, degrees: Int) -> UIImage {
+        let radians = CGFloat(degrees) * .pi / 180
+        var newSize = CGRect(origin: .zero, size: image.size)
+            .applying(CGAffineTransform(rotationAngle: radians))
+            .integral.size
+
+        // Handle iOS bug where width/height swap in portrait
+        if degrees == 90 || degrees == 270 {
+            newSize = CGSize(width: newSize.height, height: newSize.width)
+        }
+
+        UIGraphicsBeginImageContextWithOptions(newSize, false, image.scale)
+        guard let ctx = UIGraphicsGetCurrentContext() else { return image }
+
+        // Move origin to middle
+        ctx.translateBy(x: newSize.width / 2, y: newSize.height / 2)
+        ctx.rotate(by: radians)
+
+        // Draw rotated image
+        image.draw(in: CGRect(x: -image.size.width / 2,
+                            y: -image.size.height / 2,
+                            width: image.size.width,
+                            height: image.size.height))
+
+        let rotatedImage = UIGraphicsGetImageFromCurrentImageContext() ?? image
+        UIGraphicsEndImageContext()
+
+        return rotatedImage
+    }
     
     private func getBitMap(_ path: String, _ quality: NSNumber, _ position: NSNumber, _ result: FlutterResult) -> Data? {
         let url = Utility.getPathUrl(path)
