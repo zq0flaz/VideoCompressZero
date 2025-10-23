@@ -72,7 +72,7 @@ extension Compress on IVideoCompress {
     int quality = 100,
     int position = -1,
   }) async {
-    assert(quality > 1 || quality < 100);
+    assert(quality >= 1 && quality <= 100);
 
     return await _invoke<Uint8List>('getByteThumbnail', {
       'path': path,
@@ -89,7 +89,7 @@ extension Compress on IVideoCompress {
     int quality = 100,
     int position = -1,
   }) async {
-    assert(quality > 1 || quality < 100);
+    assert(quality >= 1 && quality <= 100);
 
     // Not to set the result as strong-mode so that it would have exception to
     // lead to the failure of compression
