@@ -158,24 +158,36 @@ extension Compress on IVideoCompress {
 
     // ignore: invalid_use_of_protected_member
     setProcessingStatus(true);
-    final jsonStr = await _invoke<String>('compressVideo', {
-      'path': path,
-      'quality': quality.index,
-      'deleteOrigin': deleteOrigin,
-      'startTime': startTime,
-      'duration': duration,
-      'includeAudio': includeAudio,
-      'frameRate': frameRate,
-    });
 
-    // ignore: invalid_use_of_protected_member
-    setProcessingStatus(false);
+    try {
+      final jsonStr = await _invoke<String>('compressVideo', {
+        'path': path,
+        'quality': quality.index,
+        'deleteOrigin': deleteOrigin,
+        'startTime': startTime,
+        'duration': duration,
+        'includeAudio': includeAudio,
+        'frameRate': frameRate,
+      });
 
-    if (jsonStr != null) {
-      final jsonMap = json.decode(jsonStr);
-      return MediaInfo.fromJson(jsonMap);
-    } else {
-      return null;
+      // Don't clear processing status here on iOS - let events handle it
+      // On Android, clear it since method returns when done
+      if (Platform.isAndroid) {
+        // ignore: invalid_use_of_protected_member
+        setProcessingStatus(false);
+      }
+
+      if (jsonStr != null) {
+        final jsonMap = json.decode(jsonStr);
+        return MediaInfo.fromJson(jsonMap);
+      } else {
+        return null;
+      }
+    } catch (e) {
+      // On error, always clear the flag
+      // ignore: invalid_use_of_protected_member
+      setProcessingStatus(false);
+      rethrow;
     }
   }
 

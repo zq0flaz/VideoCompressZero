@@ -6,6 +6,7 @@ import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress_zero/video_compress_zero.dart';
 import 'package:video_compress_zero_example/video_thumbnail.dart';
+import 'package:video_compress_zero_example/compress_with_cancel_example.dart';
 
 void main() {
   runApp(MyApp());
@@ -41,6 +42,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    // Subscribe to compress progress events (works for both platforms now)
     setState(() {
       _subscription = VideoCompress.compressProgress$.subscribe((progress) {
         debugPrint('progress: $progress');
@@ -49,6 +51,8 @@ class _MyHomePageState extends State<MyHomePage> {
         });
       });
     });
+
+    // iOS structured events are handled in the mixin; compressVideo future returns final MediaInfo
   }
 
   Future<void> _compressVideo() async {
@@ -201,6 +205,17 @@ class _MyHomePageState extends State<MyHomePage> {
                     );
                   },
                   child: Text('Test thumbnail'),
+                ),
+                SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => CompressWithCancelExample()),
+                    );
+                  },
+                  child: Text('Compress with Cancel Example'),
                 ),
               ],
             ),

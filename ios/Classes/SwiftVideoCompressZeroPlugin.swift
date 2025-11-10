@@ -1,10 +1,17 @@
 import Flutter
 import AVFoundation
 
-public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
+public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private let channelName = "video_compress_zero"
     private var exporter: AVAssetExportSession? = nil
     private var stopCommand = false
+    private var resultSent = false  // Track if result already sent to avoid double-call
+    // Track the path currently being compressed so cancelCompression can return its info
+    private var currentCompressingPath: String? = nil
+    private var currentSessionId: String? = nil
+    // Event channel support
+    private var eventSink: FlutterEventSink? = nil
+    private let eventChannelName = "video_compress_zero/events"
     private let channel: FlutterMethodChannel
     private let avController = AvController()
     
@@ -16,6 +23,10 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
         let channel = FlutterMethodChannel(name: "video_compress_zero", binaryMessenger: registrar.messenger())
         let instance = SwiftVideoCompressZeroPlugin(channel: channel)
         registrar.addMethodCallDelegate(instance, channel: channel)
+
+        // Register event channel for progress/cancel/completed events
+        let events = FlutterEventChannel(name: "video_compress_zero/events", binaryMessenger: registrar.messenger())
+        events.setStreamHandler(instance)
     }
     
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -69,6 +80,17 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
         default:
             result(FlutterMethodNotImplemented)
         }
+    }
+
+    // MARK: - FlutterStreamHandler
+    public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.eventSink = events
+        return nil
+    }
+
+    public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        self.eventSink = nil
+        return nil
     }
 
     private func rotateUIImage(_ image: UIImage, degrees: Int) -> UIImage {
@@ -194,7 +216,8 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
     @objc private func updateProgress(timer:Timer) {
         let asset = timer.userInfo as! AVAssetExportSession
         if(!stopCommand) {
-            channel.invokeMethod("updateProgress", arguments: "\(String(describing: asset.progress * 100))")
+            // send progress event
+            sendEvent(["type": "progress", "progress": asset.progress * 100])
         }
     }
     
@@ -235,15 +258,38 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
     private func compressVideo(_ path: String,_ quality: NSNumber,_ deleteOrigin: Bool,_ startTime: Double?,
                                _ duration: Double?,_ includeAudio: Bool?,_ frameRate: Int?,
                                _ result: @escaping FlutterResult) {
+        // Prevent concurrent compressions
+        if self.exporter != nil {
+            DispatchQueue.main.async {
+                result(FlutterError(code: self.channelName, message: "Already compressing", details: nil))
+            }
+            return
+        }
+
+        // Reset state for new compression
+        self.currentCompressingPath = path
+        self.resultSent = false
+        self.stopCommand = false  // Reset stopCommand for new compression
         let sourceVideoUrl = Utility.getPathUrl(path)
         let sourceVideoType = "mp4"
         
         let sourceVideoAsset = avController.getVideoAsset(sourceVideoUrl)
-        let sourceVideoTrack = avController.getTrack(sourceVideoAsset)
+        guard let sourceVideoTrack = avController.getTrack(sourceVideoAsset) else {
+            // Clean up state if track is nil
+            self.currentCompressingPath = nil
+            DispatchQueue.main.async {
+                result(FlutterError(code: self.channelName, message: "Failed to get video track", details: nil))
+            }
+            return
+        }
 
-        let uuid = NSUUID()
-        let compressionUrl =
-        Utility.getPathUrl("\(Utility.basePath())/\(Utility.getFileName(path))\(uuid.uuidString).\(sourceVideoType)")
+    let uuid = NSUUID()
+    let sessionId = uuid.uuidString
+    self.currentSessionId = sessionId
+    let compressionUrl =
+    Utility.getPathUrl("\(Utility.basePath())/\(Utility.getFileName(path))\(uuid.uuidString).\(sourceVideoType)")
+
+    // do not return early; keep method-channel API compatibility and return final result in completion
 
         let timescale = sourceVideoAsset.duration.timescale
         let minStartTime = Double(startTime ?? 0)
@@ -258,13 +304,20 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
         
         let isIncludeAudio = includeAudio != nil ? includeAudio! : true
         
-        let session = getComposition(isIncludeAudio, timeRange, sourceVideoTrack!)
+        let session = getComposition(isIncludeAudio, timeRange, sourceVideoTrack)
         
         guard let exporter = AVAssetExportSession(asset: session, presetName: getExportPreset(quality)) else {
-            result(FlutterError(code: channelName, message: "Failed to create exporter", details: nil))
+            // Clean up state before returning error
+            self.currentCompressingPath = nil
+            self.currentSessionId = nil
+            DispatchQueue.main.async {
+                result(FlutterError(code: self.channelName, message: "Failed to create exporter", details: nil))
+            }
             return
         }
 
+        // CRITICAL: Set exporter immediately BEFORE starting async work to prevent race condition
+        self.exporter = exporter
         
         exporter.outputURL = compressionUrl
         exporter.outputFileType = AVFileType.mp4
@@ -296,27 +349,82 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin {
                 var json = self.getMediaInfoJson(Utility.excludeEncoding(compressionUrl.path))
                 json["isCancel"] = false
                 let jsonString = Utility.keyValueToJson(json)
-                result(jsonString)
+                // emit completed event
+                self.sendEvent(["type": "completed", "sessionId": sessionId, "data": json])
+                // return final result for compressVideo call on main thread
+                if !self.resultSent {
+                    self.resultSent = true
+                    DispatchQueue.main.async {
+                        result(jsonString)
+                    }
+                }
             case .failed:
-                result(FlutterError(code: self.channelName, message: "Compression failed", details: exporter.error?.localizedDescription))
+                // emit failed event
+                self.sendEvent(["type": "failed", "sessionId": sessionId, "error": exporter.error?.localizedDescription ?? "unknown"])                
+                if !self.resultSent {
+                    self.resultSent = true
+                    DispatchQueue.main.async {
+                        result(FlutterError(code: self.channelName, message: "Compression failed", details: exporter.error?.localizedDescription))
+                    }
+                }
             case .cancelled:
-                var json = self.getMediaInfoJson(path)
+                // If cancelled, return cancellation info for the original source
+                let sourcePathForCancel = self.currentCompressingPath ?? path
+                var json = self.getMediaInfoJson(sourcePathForCancel)
                 json["isCancel"] = true
                 let jsonString = Utility.keyValueToJson(json)
-                result(jsonString)
+                // emit cancelled event (may be duplicate if cancelCompression already sent one)
+                self.sendEvent(["type": "cancelled", "sessionId": sessionId, "data": json])
+                // Only return result if not already sent by cancelCompression
+                if !self.resultSent {
+                    self.resultSent = true
+                    DispatchQueue.main.async {
+                        result(jsonString)
+                    }
+                }
             default:
                 break
             }
+            // Clear exporter and reset state
             self.exporter = nil
             self.stopCommand = false
+            self.currentCompressingPath = nil
+            self.currentSessionId = nil
+            self.resultSent = false
         }
-        self.exporter = exporter
+        // emit an event announcing the session start
+        sendEvent(["type": "started", "sessionId": sessionId, "path": Utility.excludeFileProtocol(path)])
     }
     
     private func cancelCompression(_ result: FlutterResult) {
         stopCommand = true
         exporter?.cancelExport()
-        result("")
+        
+        // Mark result as sent to prevent completion handler from calling it again
+        if currentCompressingPath != nil {
+            self.resultSent = true
+            // Emit immediate cancel event
+            var json = getMediaInfoJson(currentCompressingPath!)
+            json["isCancel"] = true
+            var payload: [String: Any] = ["type": "cancelled", "data": json]
+            if let sid = currentSessionId {
+                payload["sessionId"] = sid
+            }
+            sendEvent(payload)
+            DispatchQueue.main.async { result(true) }
+            return
+        }
+
+        DispatchQueue.main.async { result(false) }
+    }
+
+    // Helper to send events on main thread
+    private func sendEvent(_ payload: Any) {
+        DispatchQueue.main.async {
+            if let sink = self.eventSink {
+                sink(payload)
+            }
+        }
     }
     
 }
