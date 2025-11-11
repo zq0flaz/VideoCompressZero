@@ -215,7 +215,7 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
     
     @objc private func updateProgress(timer:Timer) {
         let asset = timer.userInfo as! AVAssetExportSession
-        if(!stopCommand) {
+        if(!self.stopCommand) {
             // send progress event
             sendEvent(["type": "progress", "progress": asset.progress * 100])
         }
@@ -397,7 +397,7 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
     }
     
     private func cancelCompression(_ result: FlutterResult) {
-        stopCommand = true
+        self.stopCommand = true
         exporter?.cancelExport()
         
         // Mark result as sent to prevent completion handler from calling it again
