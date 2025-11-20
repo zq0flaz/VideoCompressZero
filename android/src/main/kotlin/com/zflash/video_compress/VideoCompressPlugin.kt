@@ -33,7 +33,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
     private val TAG = "VideoCompressPlugin"
     private val LOG = Logger(TAG)
     private var transcodeFuture:Future<Void>? = null
-    var channelName = "video_compress"
+    var channelName = "video_compress_zero"
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         val context = _context;
@@ -55,7 +55,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 val path = call.argument<String>("path")
                 val quality = call.argument<Int>("quality")!!
                 val position = call.argument<Int>("position")!! // to long
-                ThumbnailUtility("video_compress").getFileThumbnail(context, path!!, quality,
+                ThumbnailUtility(channelName).getFileThumbnail(context, path!!, quality,
                         position.toLong(), result)
             }
             "getMediaInfo" -> {
@@ -83,7 +83,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 val includeAudio = call.argument<Boolean>("includeAudio") ?: true
                 val frameRate = if (call.argument<Int>("frameRate")==null) 30 else call.argument<Int>("frameRate")
 
-                val tempDir: String = context.getExternalFilesDir("video_compress")!!.absolutePath
+                val tempDir: String = context.getExternalFilesDir("video_compress_zero")!!.absolutePath
                 val out = SimpleDateFormat("yyyy-MM-dd hh-mm-ss").format(Date())
                 val destPath: String = tempDir + File.separator + "VID_" + out + path.hashCode() + ".mp4"
 
@@ -196,7 +196,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
     }
 
     companion object {
-        private const val TAG = "video_compress"
+        private const val TAG = "video_compress_zero"
     }
 
 }

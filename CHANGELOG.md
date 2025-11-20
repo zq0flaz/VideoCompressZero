@@ -1,5 +1,6 @@
-## 3.1.4+202508002
+## 3.1.4+202511001
 - fix isCancel status on IOS
+- update methodChannel name for Android 
 
 ## 3.1.4+202508001
 - Bug fix error on vivo y16 

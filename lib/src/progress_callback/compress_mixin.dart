@@ -7,9 +7,9 @@ import 'subscription.dart';
 
 class CompressMixin {
   final compressProgress$ = ObservableBuilder<double>();
-  final _channel = const MethodChannel('video_compress');
-  final _channelZero = const MethodChannel('video_compress_zero');
-  // Event channel for iOS plugin events
+  // Unified MethodChannel name after migration to video_compress_zero on all platforms
+  final _channel = const MethodChannel('video_compress_zero');
+  // Event channel for iOS plugin events (Android currently not emitting events)
   final _eventChannelZero = const EventChannel('video_compress_zero/events');
   StreamSubscription? _eventSub;
 
@@ -26,7 +26,7 @@ class CompressMixin {
     }
   }
 
-  MethodChannel get channel => Platform.isAndroid ? _channel : _channelZero;
+  MethodChannel get channel => _channel;
 
   bool _isCompressing = false;
   bool _wasCancelled = false; // last known cancellation state from native

@@ -34,10 +34,14 @@ class MediaInfo {
     path = json['path'];
     title = json['title'];
     author = json['author'];
-    width = json['width'];
-    height = json['height'];
-    orientation = json['orientation'];
-    filesize = json['filesize'];
+    width = (json['width'] is num) ? (json['width'] as num).toInt() : json['width'];
+    height = (json['height'] is num) ? (json['height'] as num).toInt() : json['height'];
+    orientation = (json['orientation'] is num)
+      ? (json['orientation'] as num).toInt()
+      : json['orientation'];
+    filesize = (json['filesize'] is num)
+      ? (json['filesize'] as num).toInt()
+      : json['filesize'];
     duration = double.tryParse('${json['duration']}');
     isCancel = json['isCancel'];
     file = File(path!);
