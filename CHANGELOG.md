@@ -1,3 +1,6 @@
+## 3.1.4+202508002
+- fix isCancel status on IOS
+
 ## 3.1.4+202508001
 - Bug fix error on vivo y16 
 - (test) fix orientation on older IOS

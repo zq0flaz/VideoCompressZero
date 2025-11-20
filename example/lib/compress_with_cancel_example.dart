@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress_zero/video_compress_zero.dart';
+import 'video_thumbnail.dart';
 
 /// Example demonstrating video compression with cancel functionality
 /// Shows:
@@ -186,7 +187,13 @@ class _CompressWithCancelExampleState extends State<CompressWithCancelExample> {
       await VideoCompress.cancelCompression();
 
       setState(() {
-        _statusMessage = 'Cancellation requested';
+        // compressVideo() will resolve shortly with MediaInfo.isCancel == true.
+        // There's no direct isCancel flag on VideoCompress; use the returned MediaInfo.
+        _statusMessage =
+            'Cancellation requested, status cancel ${VideoCompress.isCancel}';
+        // Optionally reset UI immediately; final state updates when compressVideo completes.
+        _isCompressing = false;
+        _progress = 0;
       });
     } catch (e) {
       setState(() {
@@ -211,8 +218,33 @@ class _CompressWithCancelExampleState extends State<CompressWithCancelExample> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Compress with Cancel Example'),
+        title: const Text('Video Compress Zero'),
         actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) {
+              if (value == 'thumbnail') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => VideoThumbnail(),
+                  ),
+                );
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              const PopupMenuItem(
+                value: 'thumbnail',
+                child: Row(
+                  children: [
+                    Icon(Icons.image),
+                    SizedBox(width: 8),
+                    Text('Video Thumbnail'),
+                  ],
+                ),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _reset,

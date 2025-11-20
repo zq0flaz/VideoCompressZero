@@ -9,6 +9,8 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
     // Track the path currently being compressed so cancelCompression can return its info
     private var currentCompressingPath: String? = nil
     private var currentSessionId: String? = nil
+    // Track if we've sent an initial 0% progress event (for waiting/preparing state)
+    private var sentInitialProgress = false
     // Event channel support
     private var eventSink: FlutterEventSink? = nil
     private let eventChannelName = "video_compress_zero/events"
@@ -30,14 +32,12 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
     }
     
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard let args = call.arguments as? [String: Any] else {
-            result(FlutterError(code: channelName, message: "Invalid arguments", details: nil))
-            return
-        }
+        let args = call.arguments as? [String: Any]
 
         switch call.method {
         case "getByteThumbnail":
-            guard let path = args["path"] as? String,
+            guard let args = args,
+                  let path = args["path"] as? String,
                   let quality = args["quality"] as? NSNumber,
                   let position = args["position"] as? NSNumber else {
                 result(FlutterError(code: channelName, message: "Invalid arguments for getByteThumbnail", details: nil))
@@ -45,7 +45,8 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
             }
             getByteThumbnail(path, quality, position, result)
         case "getFileThumbnail":
-            guard let path = args["path"] as? String,
+            guard let args = args,
+                  let path = args["path"] as? String,
                   let quality = args["quality"] as? NSNumber,
                   let position = args["position"] as? NSNumber else {
                 result(FlutterError(code: channelName, message: "Invalid arguments for getFileThumbnail", details: nil))
@@ -53,13 +54,15 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
             }
             getFileThumbnail(path, quality, position, result)
         case "getMediaInfo":
-            guard let path = args["path"] as? String else {
+            guard let args = args,
+                  let path = args["path"] as? String else {
                 result(FlutterError(code: channelName, message: "Invalid arguments for getMediaInfo", details: nil))
                 return
             }
             getMediaInfo(path, result)
         case "compressVideo":
-            guard let path = args["path"] as? String,
+            guard let args = args,
+                  let path = args["path"] as? String,
                   let quality = args["quality"] as? NSNumber,
                   let deleteOrigin = args["deleteOrigin"] as? Bool else {
                 result(FlutterError(code: channelName, message: "Invalid arguments for compressVideo", details: nil))
@@ -214,11 +217,39 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
     
     
     @objc private func updateProgress(timer:Timer) {
-        let asset = timer.userInfo as! AVAssetExportSession
-        if(!stopCommand) {
-            // send progress event
-            sendEvent(["type": "progress", "progress": asset.progress * 100])
+        guard let asset = timer.userInfo as? AVAssetExportSession else {
+            NSLog("🔴 updateProgress: timer.userInfo is not AVAssetExportSession")
+            timer.invalidate()
+            return
         }
+
+        // Status codes (AVAssetExportSession.Status):
+        // 0: unknown, 1: waiting, 2: cancelled, 3: exporting, 4: completed, 5: failed
+        let status = asset.status.rawValue
+        let rawProgress = asset.progress
+        NSLog("🟢 updateProgress: status=\(status), progress=\(rawProgress), stopCommand=\(stopCommand)")
+
+        // Emit a single initial 0% while waiting/unknown to show preparing state
+        if !sentInitialProgress && !stopCommand && (asset.status == .unknown || asset.status == .waiting) {
+            sendEvent(["type": "progress", "progress": 0.0])
+            sentInitialProgress = true
+            return
+        }
+
+        // Active exporting progress
+        if !stopCommand && asset.status == .exporting {
+            sentInitialProgress = true // ensure flag set
+            sendEvent(["type": "progress", "progress": rawProgress * 100])
+            return
+        }
+
+        // Terminal states: completed / failed / cancelled OR externally stopped
+        if stopCommand || asset.status == .completed || asset.status == .failed || asset.status == .cancelled {
+            NSLog("🟡 updateProgress: invalidating timer, terminal status=\(status)")
+            timer.invalidate()
+            return
+        }
+        // For other states (waiting/unknown) we keep timer alive; progress will be emitted once exporting starts
     }
     
     private func getExportPreset(_ quality: NSNumber)->String {
@@ -399,30 +430,34 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
     private func cancelCompression(_ result: FlutterResult) {
         stopCommand = true
         exporter?.cancelExport()
-        
-        // Mark result as sent to prevent completion handler from calling it again
-        if currentCompressingPath != nil {
-            self.resultSent = true
-            // Emit immediate cancel event
-            var json = getMediaInfoJson(currentCompressingPath!)
+
+        // Emit cancellation info if we have a path
+        if let path = currentCompressingPath {
+            resultSent = true
+            var json = getMediaInfoJson(path)
             json["isCancel"] = true
             var payload: [String: Any] = ["type": "cancelled", "data": json]
-            if let sid = currentSessionId {
-                payload["sessionId"] = sid
-            }
+            if let sid = currentSessionId { payload["sessionId"] = sid }
             sendEvent(payload)
-            DispatchQueue.main.async { result(true) }
-            return
         }
 
-        DispatchQueue.main.async { result(false) }
+        // Full state reset
+        exporter = nil
+        currentCompressingPath = nil
+        currentSessionId = nil
+        sentInitialProgress = false
+        // Return nil for void method
+        result(nil)
     }
 
     // Helper to send events on main thread
     private func sendEvent(_ payload: Any) {
         DispatchQueue.main.async {
             if let sink = self.eventSink {
+                NSLog("🟢 iOS sending event: \(payload)")
                 sink(payload)
+            } else {
+                NSLog("🔴 iOS event sink is nil, cannot send: \(payload)")
             }
         }
     }

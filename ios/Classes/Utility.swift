@@ -43,28 +43,29 @@ class Utility: NSObject {
     static func keyValueToJson(_ keyAndValue: [String : Any?])->String {
         do {
             let data = try JSONSerialization.data(withJSONObject: keyAndValue as NSDictionary, options: [])
-            let jsonString = NSString(data:data as Data,encoding: String.Encoding.utf8.rawValue)
-            return jsonString! as String
+            guard let jsonString = NSString(data: data as Data, encoding: String.Encoding.utf8.rawValue) else {
+                print("Failed to convert JSON data to string")
+                return "{}"
+            }
+            return jsonString as String
         } catch {
             print("Failed to serialize JSON: \(error)")
+            return "{}"
         }
-        return "{}"
     }
     
     static func deleteFile(_ path: String, clear: Bool = false) {
         let url = getPathUrl(path)
-        if fileManager.fileExists(atPath: url.absoluteString) {
-            do {
-                try? fileManager.removeItem(at: url)
-            } catch {
-                print("Failed to delete file: \(error)")
-            }
-        }
+        
         if clear {
-            do {
+            // Clear the entire directory
+            if fileManager.fileExists(atPath: url.path) {
                 try? fileManager.removeItem(at: url)
-            } catch {
-                print("Failed to delete file: \(error)")
+            }
+        } else {
+            // Delete single file
+            if fileManager.fileExists(atPath: url.path) {
+                try? fileManager.removeItem(at: url)
             }
         }
     }

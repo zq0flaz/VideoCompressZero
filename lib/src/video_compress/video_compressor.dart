@@ -51,6 +51,9 @@ extension Compress on IVideoCompress {
     _VideoCompressImpl._dispose();
   }
 
+  // Returns true if the last compression was cancelled (iOS/macOS via events)
+  bool get isCancel => wasCancelled;
+
   Future<T?> _invoke<T>(String name, [Map<String, dynamic>? params]) async {
     try {
       return params != null
@@ -158,6 +161,8 @@ extension Compress on IVideoCompress {
 
     // ignore: invalid_use_of_protected_member
     setProcessingStatus(true);
+    // ignore: invalid_use_of_protected_member
+    setCancelled(false); // reset cancel flag at start
 
     try {
       final jsonStr = await _invoke<String>('compressVideo', {
@@ -195,6 +200,11 @@ extension Compress on IVideoCompress {
   /// If there is no compression process, nothing will happen.
   Future<void> cancelCompression() async {
     await _invoke<void>('cancelCompression');
+    // Clear the compressing state immediately
+    // ignore: invalid_use_of_protected_member
+    setProcessingStatus(false);
+    // ignore: invalid_use_of_protected_member
+    setCancelled(true); // reflect cancellation immediately
   }
 
   /// delete the cache folder, please do not put other things

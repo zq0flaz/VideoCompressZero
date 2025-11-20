@@ -16,11 +16,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Video Compress Zero Example',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const CompressWithCancelExample(),
     );
   }
 }
@@ -53,6 +53,12 @@ class _MyHomePageState extends State<MyHomePage> {
     });
 
     // iOS structured events are handled in the mixin; compressVideo future returns final MediaInfo
+  }
+
+  @override
+  void dispose() {
+    _subscription.unsubscribe();
+    super.dispose();
   }
 
   Future<void> _compressVideo() async {

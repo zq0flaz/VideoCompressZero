@@ -29,8 +29,16 @@ class CompressMixin {
   MethodChannel get channel => Platform.isAndroid ? _channel : _channelZero;
 
   bool _isCompressing = false;
+  bool _wasCancelled = false; // last known cancellation state from native
 
   bool get isCompressing => _isCompressing;
+  bool get wasCancelled => _wasCancelled;
+
+  // Allow API layer to update cancellation flag when appropriate
+  @protected
+  void setCancelled(bool value) {
+    _wasCancelled = value;
+  }
 
   @protected
   void setProcessingStatus(bool status) {
@@ -49,11 +57,14 @@ class CompressMixin {
 
   void _handleEvent(dynamic event) {
     try {
+      debugPrint('🔵 Event received: $event');
       if (event is Map) {
         final type = event['type'];
+        debugPrint('🔵 Event type: $type');
         switch (type) {
           case 'progress':
             final p = event['progress'];
+            debugPrint('🔵 Progress value: $p');
             if (p != null) compressProgress$.next((p as num).toDouble());
             break;
           case 'started':
@@ -62,22 +73,26 @@ class CompressMixin {
             if (!_isCompressing) {
               _isCompressing = true;
             }
+            _wasCancelled = false;
             break;
           case 'completed':
             debugPrint('compression completed: ${event['sessionId']}');
             // Clear compressing status when iOS confirms completion
             _isCompressing = false;
+            _wasCancelled = false;
             break;
           case 'cancelled':
             debugPrint('compression cancelled: ${event['sessionId']}');
             // Clear compressing status when iOS confirms cancellation
             _isCompressing = false;
+            _wasCancelled = true;
             break;
           case 'failed':
             debugPrint(
                 'compression failed: ${event['sessionId']} - ${event['error']}');
             // Clear compressing status when iOS confirms failure
             _isCompressing = false;
+            _wasCancelled = false;
             break;
         }
       }
