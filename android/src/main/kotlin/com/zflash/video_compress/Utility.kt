@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
-import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
 import java.io.File
 
@@ -56,7 +55,7 @@ class Utility(private val channelName: String) {
     }
 
     fun getMediaInfoJson(context: Context, path: String): JSONObject {
-        val file = File(path)
+        val uri = buildUri(path)
         val retriever = MediaMetadataRetriever()
 
         try {
@@ -73,7 +72,12 @@ class Utility(private val channelName: String) {
             val duration = durationStr?.toLongOrNull() ?: 0L
             var width = widthStr?.toLongOrNull() ?: 0L
             var height = heightStr?.toLongOrNull() ?: 0L
-            val filesize = file.length()
+            require(width > 0 && height > 0 && duration > 0) { "Input has no valid video track" }
+            val filesize = if (uri.scheme == "content") {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+            } else if (uri.scheme == "file") {
+                File(uri.path!!).length()
+            } else { -1L }
             val orientation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
             } else {
@@ -108,17 +112,13 @@ class Utility(private val channelName: String) {
         }
     }
 
-    fun getBitmap(context: Context, path: String, position: Long, result: MethodChannel.Result): Bitmap {
+    fun getBitmap(context: Context, path: String, position: Long): Bitmap {
         var bitmap: Bitmap? = null
         val retriever = MediaMetadataRetriever()
 
         try {
             setRetrieverDataSource(context, retriever, path)
-            bitmap = retriever.getFrameAtTime(position, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-        } catch (ex: IllegalArgumentException) {
-            result.error("video_compress_get_bitmap", "Invalid path or corrupt video file", ex.message)
-        } catch (ex: RuntimeException) {
-            result.error("video_compress_get_bitmap", "Failed to get bitmap", ex.message)
+            bitmap = retriever.getFrameAtTime(NativeRules.thumbnailMicros(position), MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
         } finally {
             try {
                 retriever.release()
@@ -127,20 +127,15 @@ class Utility(private val channelName: String) {
             }
         }
 
-        if (bitmap == null) {
-            result.error("video_compress_get_bitmap", "Failed to get bitmap, bitmap is null", null)
-            // Should not happen, but as a fallback
-            return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-        }
-
+        requireNotNull(bitmap) { "No frame found in video" }
 
         val width = bitmap.width
         val height = bitmap.height
         val max = Math.max(width, height)
         if (max > 512) {
             val scale = 512f / max
-            val w = Math.round(scale * width)
-            val h = Math.round(scale * height)
+            val w = Math.max(1, Math.round(scale * width))
+            val h = Math.max(1, Math.round(scale * height))
             val scaled = Bitmap.createScaledBitmap(bitmap, w, h, true)
             if (scaled != bitmap) {
                 bitmap.recycle()
@@ -169,10 +164,10 @@ class Utility(private val channelName: String) {
         return fileName
     }
 
-    fun deleteAllCache(context: Context, result: MethodChannel.Result) {
-        val dir = context.getExternalFilesDir("video_compress")
-        val success = dir?.deleteRecursively() ?: false
-        dir?.mkdirs()
-        result.success(success)
+    fun deleteAllCache(context: Context): Boolean {
+        return listOf("video_compress_zero", "video_compress").map { name ->
+            val dir = context.getExternalFilesDir(name)
+            dir != null && (!dir.exists() || dir.deleteRecursively())
+        }.all { it }
     }
 }

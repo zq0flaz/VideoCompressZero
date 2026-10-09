@@ -13,7 +13,7 @@ import 'video_thumbnail.dart';
 /// - Status messages
 /// - Event-based state updates
 class CompressWithCancelExample extends StatefulWidget {
-  const CompressWithCancelExample({Key? key}) : super(key: key);
+  const CompressWithCancelExample({super.key});
 
   @override
   State<CompressWithCancelExample> createState() =>

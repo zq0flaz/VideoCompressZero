@@ -9,10 +9,11 @@ import 'package:video_compress_zero_example/video_thumbnail.dart';
 import 'package:video_compress_zero_example/compress_with_cancel_example.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -26,12 +27,12 @@ class MyApp extends StatelessWidget {
 }
 
 class MyHomePage extends StatefulWidget {
-  MyHomePage({Key? key, this.title}) : super(key: key);
+  const MyHomePage({super.key, this.title});
 
   final String? title;
 
   @override
-  _MyHomePageState createState() => _MyHomePageState();
+  State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
@@ -62,16 +63,20 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _compressVideo() async {
-    var file;
+    File? file;
     if (Platform.isMacOS) {
       // final typeGroup = XTypeGroup(label: 'videos', extensions: ['mov', 'mp4']);
       // file = await openFile(acceptedTypeGroups: [typeGroup]);
-      file = await FilePicker.platform
-          .pickFiles(dialogTitle: "videos", allowedExtensions: ['mov', 'mp4']);
+      final picked = await FilePicker.platform.pickFiles(
+          dialogTitle: "videos",
+          type: FileType.custom,
+          allowedExtensions: ['mov', 'mp4']);
+      final path = picked?.files.single.path;
+      if (path != null) file = File(path);
     } else {
       final picker = ImagePicker();
       var pickedFile = await picker.pickVideo(source: ImageSource.gallery);
-      file = File(pickedFile!.path);
+      if (pickedFile != null) file = File(pickedFile.path);
     }
     if (file == null) {
       return;
@@ -96,7 +101,8 @@ class _MyHomePageState extends State<MyHomePage> {
     if (_info?.file == null) return;
     final result = await ImageGallerySaverPlus.saveFile(_info!.file!.path,
         isReturnPathOfIOS: true);
-    print(result);
+    debugPrint(result.toString());
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (BuildContext context) {

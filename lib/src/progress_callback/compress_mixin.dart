@@ -30,6 +30,11 @@ class CompressMixin {
 
   bool _isCompressing = false;
   bool _wasCancelled = false; // last known cancellation state from native
+  String? _activeSessionId;
+  int _processingGeneration = 0;
+
+  @protected
+  int get processingGeneration => _processingGeneration;
 
   bool get isCompressing => _isCompressing;
   bool get wasCancelled => _wasCancelled;
@@ -41,7 +46,9 @@ class CompressMixin {
   }
 
   @protected
-  void setProcessingStatus(bool status) {
+  void setProcessingStatus(bool status, {int? generation}) {
+    if (generation != null && generation != _processingGeneration) return;
+    if (status) _processingGeneration++;
     _isCompressing = status;
   }
 
@@ -60,6 +67,12 @@ class CompressMixin {
       debugPrint('🔵 Event received: $event');
       if (event is Map) {
         final type = event['type'];
+        final sessionId = event['sessionId'] as String?;
+        if (type == 'started') {
+          _activeSessionId = sessionId;
+        } else if (sessionId != null && sessionId != _activeSessionId) {
+          return;
+        }
         debugPrint('🔵 Event type: $type');
         switch (type) {
           case 'progress':
@@ -76,18 +89,21 @@ class CompressMixin {
             _wasCancelled = false;
             break;
           case 'completed':
+            _activeSessionId = null;
             debugPrint('compression completed: ${event['sessionId']}');
             // Clear compressing status when iOS confirms completion
             _isCompressing = false;
             _wasCancelled = false;
             break;
           case 'cancelled':
+            _activeSessionId = null;
             debugPrint('compression cancelled: ${event['sessionId']}');
             // Clear compressing status when iOS confirms cancellation
             _isCompressing = false;
             _wasCancelled = true;
             break;
           case 'failed':
+            _activeSessionId = null;
             debugPrint(
                 'compression failed: ${event['sessionId']} - ${event['error']}');
             // Clear compressing status when iOS confirms failure

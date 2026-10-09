@@ -48,6 +48,8 @@ IVideoCompress get VideoCompress => _VideoCompressImpl.instance;
 
 extension Compress on IVideoCompress {
   void dispose() {
+    // ignore: invalid_use_of_protected_member
+    disposeProcessCallback();
     _VideoCompressImpl._dispose();
   }
 
@@ -162,6 +164,8 @@ extension Compress on IVideoCompress {
     // ignore: invalid_use_of_protected_member
     setProcessingStatus(true);
     // ignore: invalid_use_of_protected_member
+    final generation = processingGeneration;
+    // ignore: invalid_use_of_protected_member
     setCancelled(false); // reset cancel flag at start
 
     try {
@@ -175,12 +179,9 @@ extension Compress on IVideoCompress {
         'frameRate': frameRate,
       });
 
-      // Don't clear processing status here on iOS - let events handle it
-      // On Android, clear it since method returns when done
-      if (Platform.isAndroid) {
-        // ignore: invalid_use_of_protected_member
-        setProcessingStatus(false);
-      }
+      // Every native compression request settles only after a terminal state.
+      // ignore: invalid_use_of_protected_member
+      setProcessingStatus(false, generation: generation);
 
       if (jsonStr != null) {
         final jsonMap = json.decode(jsonStr);
@@ -191,7 +192,7 @@ extension Compress on IVideoCompress {
     } catch (e) {
       // On error, always clear the flag
       // ignore: invalid_use_of_protected_member
-      setProcessingStatus(false);
+      setProcessingStatus(false, generation: generation);
       rethrow;
     }
   }
@@ -199,12 +200,17 @@ extension Compress on IVideoCompress {
   /// stop compressing the file that is currently being compressed.
   /// If there is no compression process, nothing will happen.
   Future<void> cancelCompression() async {
+    // ignore: invalid_use_of_protected_member
+    final generation = processingGeneration;
     await _invoke<void>('cancelCompression');
     // Clear the compressing state immediately
     // ignore: invalid_use_of_protected_member
-    setProcessingStatus(false);
+    setProcessingStatus(false, generation: generation);
     // ignore: invalid_use_of_protected_member
-    setCancelled(true); // reflect cancellation immediately
+    if (generation == processingGeneration) {
+      // ignore: invalid_use_of_protected_member
+      setCancelled(true);
+    }
   }
 
   /// delete the cache folder, please do not put other things

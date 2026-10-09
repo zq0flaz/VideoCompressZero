@@ -2,6 +2,15 @@
 
 This directory contains unit tests for the iOS native implementation of the VideoCompressZero plugin.
 
+The active regression suite is now in `example/ios/RunnerTests/RunnerTests.swift`.
+Run `ruby scripts_setup_ios_tests.rb` from the repository root on macOS before
+building the CocoaPods example. That script enables RunnerTests in the Xcode
+scheme. The older tests below are supplemental and are not automatically wired
+into the host; some test constants rather than production behavior.
+
+Production Swift sources now live in
+`ios/video_compress_zero/Sources/video_compress_zero` for shared CocoaPods/SwiftPM packaging.
+
 ## Test Files
 
 - **AvControllerTests.swift** - Tests for video asset operations and orientation detection

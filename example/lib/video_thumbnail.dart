@@ -5,8 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_compress_zero/video_compress_zero.dart';
 
 class VideoThumbnail extends StatefulWidget {
+  const VideoThumbnail({super.key});
   @override
-  _VideoThumbnailState createState() => _VideoThumbnailState();
+  State<VideoThumbnail> createState() => _VideoThumbnailState();
 }
 
 class _VideoThumbnailState extends State<VideoThumbnail> {
@@ -14,27 +15,31 @@ class _VideoThumbnailState extends State<VideoThumbnail> {
 
   @override
   Widget build(BuildContext context) {
-    Future<Null> _getVideoThumbnail() async {
-      var file;
+    Future<void> getVideoThumbnail() async {
+      File? file;
 
       if (Platform.isMacOS) {
         // final typeGroup =
         //     XTypeGroup(label: 'videos', extensions: ['mov', 'mp4']);
-        file = await FilePicker.platform.pickFiles(
-            dialogTitle: "videos", allowedExtensions: ['mov', 'mp4']);
+        final picked = await FilePicker.platform.pickFiles(
+            dialogTitle: "videos",
+            type: FileType.custom,
+            allowedExtensions: ['mov', 'mp4']);
+        final path = picked?.files.single.path;
+        if (path != null) file = File(path);
       } else {
         final picker = ImagePicker();
         var pickedFile = await picker.pickVideo(source: ImageSource.gallery);
-        file = File(pickedFile!.path);
+        if (pickedFile != null) file = File(pickedFile.path);
       }
 
       if (file != null) {
         _thumbnailFile = await VideoCompress.getFileThumbnail(file.path);
         setState(() {
-          print(_thumbnailFile);
+          debugPrint(_thumbnailFile.toString());
         });
       } else {
-        return null;
+        return;
       }
     }
 
@@ -45,10 +50,9 @@ class _VideoThumbnailState extends State<VideoThumbnail> {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-                child: ElevatedButton(
-                    onPressed: _getVideoThumbnail,
-                    child: Text('Get File Thumbnail'))),
+            ElevatedButton(
+                onPressed: getVideoThumbnail,
+                child: const Text('Get File Thumbnail')),
             _buildThumbnail(),
           ],
         ),

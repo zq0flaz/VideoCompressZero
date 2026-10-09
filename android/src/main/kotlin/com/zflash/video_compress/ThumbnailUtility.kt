@@ -6,51 +6,38 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 
 class ThumbnailUtility(channelName: String) {
     private val utility = Utility(channelName)
 
     fun getByteThumbnail(context: Context, path: String, quality: Int, position: Long, result: MethodChannel.Result) {
-        val bmp = utility.getBitmap(context, path, position, result)
-        if (bmp.width == 1 && bmp.height == 1) {
-            result.error("video_compress_thumbnail", "Failed to extract thumbnail", null)
-            return
-        }
-        val stream = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, quality, stream)
-        val byteArray = stream.toByteArray()
-        bmp.recycle()
-        result.success(byteArray)
+        result.success(thumbnail(context, path, quality, position))
     }
 
-    fun getFileThumbnail(context: Context, path: String, quality: Int, position: Long,
-                             result: MethodChannel.Result) {
-        val bmp = utility.getBitmap(context, path, position, result)
-        if (bmp.width == 1 && bmp.height == 1) {
-            result.error("video_compress_thumbnail", "Failed to extract thumbnail", null)
-            return
-        }
-        val dir = context.getExternalFilesDir("video_compress")
-
-        if (dir != null && !dir.exists()) dir.mkdirs()
-
-        val name = File(path).nameWithoutExtension + ".jpg"
-        val file = File(dir, name)
-        utility.deleteFile(file)
-
-        val stream = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, quality, stream)
-        val byteArray = stream.toByteArray()
-
+    private fun thumbnail(context: Context, path: String, quality: Int, position: Long): ByteArray {
+        val bitmap = utility.getBitmap(context, path, position)
         try {
-            file.createNewFile()
-            file.writeBytes(byteArray)
-        } catch (e: IOException) {
-            e.printStackTrace()
+            return ByteArrayOutputStream().use { stream ->
+                check(bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)) { "JPEG encoding failed" }
+                stream.toByteArray()
+            }
+        } finally {
+            bitmap.recycle()
         }
+    }
 
-        bmp.recycle()
-
+    fun getFileThumbnail(context: Context, path: String, quality: Int, position: Long, result: MethodChannel.Result) {
+        val bytes = thumbnail(context, path, quality, position)
+        val dir = context.getExternalFilesDir("video_compress_zero") ?: throw IOException("External storage unavailable")
+        check(dir.exists() || dir.mkdirs()) { "Cannot create thumbnail directory" }
+        val file = File(dir, UUID.randomUUID().toString() + ".jpg")
+        try {
+            file.writeBytes(bytes)
+        } catch (exception: IOException) {
+            file.delete()
+            throw exception
+        }
         result.success(file.absolutePath)
     }
 }

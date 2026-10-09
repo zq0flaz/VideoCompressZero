@@ -35,3 +35,15 @@ GeneratedPluginRegistrant.m
 GeneratedPluginRegistrant.java
 build/
 .flutter-plugins
+
+# FVM Version Cache
+.fvm/
+.kilo/
+.github/
+
+# Native compiler caches and SwiftPM build output
+.kotlin/
+.build/
+.swiftpm/
+!example/ios/Podfile
+.native_validation/

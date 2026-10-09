@@ -14,9 +14,8 @@ with improved Android compatibility and fixes. Includes progress tracking fixes 
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Zq' => '' }
   s.source           = { :path => '.' }
-  s.source_files = 'Classes/**/*'
-  s.public_header_files = 'Classes/**/*.h'
+  s.source_files = 'video_compress_zero/Sources/video_compress_zero/**/*.swift'
   s.dependency 'Flutter'
-  s.ios.deployment_target = '12.0'
+  s.ios.deployment_target = '13.0'
 end
 

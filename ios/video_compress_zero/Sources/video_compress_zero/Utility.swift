@@ -1,3 +1,5 @@
+import Foundation
+
 class Utility: NSObject {
     static let fileManager = FileManager.default
     
@@ -29,11 +31,12 @@ class Utility: NSObject {
     }
     
     static func getPathUrl(_ path: String)->URL {
-        return URL(fileURLWithPath: excludeFileProtocol(path))
+        if path.hasPrefix("file://"), let url = URL(string: path), url.isFileURL { return url }
+        return URL(fileURLWithPath: path)
     }
     
     static func excludeFileProtocol(_ path: String)->String {
-        return path.replacingOccurrences(of: "file://", with: "")
+        return getPathUrl(path).path
     }
     
     static func excludeEncoding(_ path: String) -> String{

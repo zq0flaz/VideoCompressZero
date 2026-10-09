@@ -15,12 +15,13 @@ class AvController: NSObject {
             let status = asset.statusOfValue(forKey: "tracks", error: &error)
             if status == .loaded {
                 track = asset.tracks(withMediaType: AVMediaType.video).first
-            } else if let error = error {
-                print("Failed to load tracks: \(error.localizedDescription)")
             }
             group.leave()
         })
-        group.wait()
+        guard group.wait(timeout: .now() + 30) == .success else {
+            asset.cancelLoading()
+            return nil
+        }
         return track
     }
 

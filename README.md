@@ -10,7 +10,7 @@
 > **Note:** This package has not been fully tested on all platforms yet. Please use with caution and report any issues found.
 
 🚧 iOS: Not tested
-🚧 macOS: Not tested
+macOS is currently unsupported; the repository does not contain a native macOS plugin.
 
 ---
 
@@ -28,7 +28,7 @@ Compress videos, remove audio, manipulate thumbnails, and make your video compat
 In addition, google chrome uses VP8/VP9, safari uses h264, and most of the time, it is necessary to encode the video in two formats, but not with this library.
 All video files are encoded in an MP4 container with AAC audio that allows 100% compatibility with safari, mozila, chrome, android and iOS.
 
-Works on ANDROID, IOS and desktop (just MacOS for now).
+Works on Android and iOS. iOS requires iOS 13 or newer and supports CocoaPods and Swift Package Manager packaging.
 
 
 
@@ -74,6 +74,54 @@ import 'package:video_compress_zero/video_compress_zero.dart';
 ````
 
 # How to use
+
+## iOS UIScene support
+
+The iOS plugin registers its method and event channels through the Flutter engine
+registrar and does not depend on application UI lifecycle callbacks. It can be
+used in a UIScene host app without adding scene callbacks to the plugin.
+
+UIScene adoption is configured in the **host app**, so updating this package alone
+does not migrate an existing app. With Flutter 3.38 or newer (3.41+ recommended):
+
+1. Make your host `AppDelegate` conform to `FlutterImplicitEngineDelegate` and
+   register plugins in `didInitializeImplicitFlutterEngine`, using
+   `engineBridge.pluginRegistry`, instead of `didFinishLaunchingWithOptions`.
+2. Add `UIApplicationSceneManifest` to the host's `ios/Runner/Info.plist`, using
+   `FlutterSceneDelegate`, `UIWindowScene`, and your `Main` storyboard. Keep
+   `UIApplicationSupportsMultipleScenes` set to `false` for a single-window app.
+3. Move any custom UI lifecycle callbacks to a subclass of `FlutterSceneDelegate`
+   if your app needs them.
+
+The [example AppDelegate](example/ios/Runner/AppDelegate.swift) and
+[Info.plist](example/ios/Runner/Info.plist) demonstrate this configuration. Only
+the example requires Flutter 3.38+; the plugin keeps its existing SDK minimum.
+See the [Flutter UIScene migration guide](https://docs.flutter.dev/release/breaking-changes/uiscenedelegate)
+for custom host integrations.
+
+On macOS, validate with `cd example` and `flutter build ios --simulator`, then run
+the example on an iOS simulator or device. Check cold launch, thumbnail creation,
+compression progress/completion, cancellation, and background/foreground transitions.
+UIScene adoption does not itself grant background execution time for compression.
+
+### Native regression tests
+
+Run `flutter test` and `flutter analyze` from the repository root. For Android,
+build the example with `flutter build apk --release`, then run
+`./gradlew :video_compress_zero:testDebugUnitTest` from `example/android` (use
+`gradlew.bat` on Windows).
+
+On macOS, disable SwiftPM for the CocoaPods test host with
+`flutter config --no-enable-swift-package-manager`, run `flutter pub get` in
+`example`, then run `ruby scripts_setup_ios_tests.rb` from the repository root.
+This adds the RunnerTests target and enables it in the Runner scheme. Build the
+example with `flutter build ios --simulator`, then run its Runner tests in Xcode.
+The tests cover cancellation/restart, invalid input, path decoding, thumbnail
+timing/orientation, and trimmed exports using a generated video fixture.
+
+CI also builds a separate host with SwiftPM enabled on the stable Flutter channel.
+The Swift sources live in `ios/video_compress_zero/Sources/video_compress_zero`;
+both the podspec and SwiftPM manifest use this directory.
 
 ### Imports
 

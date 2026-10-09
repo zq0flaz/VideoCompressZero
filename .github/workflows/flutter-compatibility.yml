@@ -12,12 +12,12 @@ on:
 
 jobs:
   dart-checks:
-    name: Flutter ${{ matrix.flutter-version }}
+    name: Flutter ${{ matrix.flutter-version || 'stable' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        flutter-version: ['3.41.9', 'stable']
+        flutter-version: ['3.41.9', '']
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -39,3 +39,50 @@ jobs:
       - name: Analyze example
         working-directory: example
         run: flutter analyze
+
+  android-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter pub get
+      - run: flutter build apk --release
+        working-directory: example
+      - run: ./gradlew :video_compress_zero:testDebugUnitTest
+        working-directory: example/android
+
+  ios-native:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        packaging: [cocoapods, swiftpm]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter --version
+      - run: flutter config --no-enable-swift-package-manager
+        if: matrix.packaging == 'cocoapods'
+      - run: flutter config --enable-swift-package-manager
+        if: matrix.packaging == 'swiftpm'
+      - run: flutter pub get
+        working-directory: example
+      - run: ruby scripts_setup_ios_tests.rb
+        if: matrix.packaging == 'cocoapods'
+      - run: flutter build ios --simulator --debug
+        working-directory: example
+      - name: Native cancellation and argument tests
+        if: matrix.packaging == 'cocoapods'
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; print(next(d["udid"] for group in json.load(sys.stdin)["devices"].values() for d in group if d["name"].startswith("iPhone")))')
+          xcodebuild test -workspace example/ios/Runner.xcworkspace -scheme Runner -destination "platform=iOS Simulator,id=$DEVICE_ID" CODE_SIGNING_ALLOWED=NO

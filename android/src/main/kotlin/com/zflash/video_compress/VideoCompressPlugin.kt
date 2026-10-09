@@ -2,7 +2,6 @@ package com.zflash.video_compress
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import com.otaliastudios.transcoder.Transcoder
 import com.otaliastudios.transcoder.TranscoderListener
 import com.otaliastudios.transcoder.source.TrimDataSource
@@ -18,7 +17,9 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import java.io.File
-import java.text.SimpleDateFormat
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.Executors
 import java.util.*
 import java.util.concurrent.Future
 
@@ -28,19 +29,34 @@ import java.util.concurrent.Future
 class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
 
 
-    private var _context: Context? = null
-    private var _channel: MethodChannel? = null
+    @Volatile private var _context: Context? = null
+    @Volatile private var _channel: MethodChannel? = null
     private val TAG = "VideoCompressPlugin"
-    private val LOG = Logger(TAG)
-    private var transcodeFuture:Future<Void>? = null
     var channelName = "video_compress_zero"
 
+    private val worker = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
+    private class Session(val result: MethodChannel.Result, val dest: String) {
+        var future: Future<Void>? = null
+    }
+    private var active: Session? = null
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        val context = _context;
-        val channel = _channel;
+        val reply = SingleReply(result) { callback -> main.post { callback() } }
+        val context = _context
+        val channel = _channel
+        worker.execute {
+            try { handle(call, reply, context, channel) }
+            catch (exception: Exception) {
+                reply.error("video_compress_zero", "Native operation failed", exception.message)
+            }
+        }
+    }
+
+    private fun handle(call: MethodCall, result: MethodChannel.Result, context: Context?, channel: MethodChannel?) {
 
         if (context == null || channel == null) {
-            Log.w(TAG, "Calling VideoCompress plugin before initialization")
+            result.error("video_compress_zero", "Engine detached", null)
             return
         }
 
@@ -48,22 +64,25 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
             "getByteThumbnail" -> {
                 val path = call.argument<String>("path")
                 val quality = call.argument<Int>("quality")!!
-                val position = call.argument<Int>("position")!! // to long
-                ThumbnailUtility(channelName).getByteThumbnail(context, path!!, quality, position.toLong(), result)
+                val position = call.argument<Number>("position")!!.toLong()
+                require(quality in 1..100 && position >= -1) { "Invalid thumbnail arguments" }
+                ThumbnailUtility(channelName).getByteThumbnail(context, path!!, quality, position, result)
             }
             "getFileThumbnail" -> {
                 val path = call.argument<String>("path")
                 val quality = call.argument<Int>("quality")!!
-                val position = call.argument<Int>("position")!! // to long
+                val position = call.argument<Number>("position")!!.toLong()
+                require(quality in 1..100 && position >= -1) { "Invalid thumbnail arguments" }
                 ThumbnailUtility(channelName).getFileThumbnail(context, path!!, quality,
-                        position.toLong(), result)
+                        position, result)
             }
             "getMediaInfo" -> {
                 val path = call.argument<String>("path")
                 result.success(Utility(channelName).getMediaInfoJson(context, path!!).toString())
             }
             "deleteAllCache" -> {
-                result.success(Utility(channelName).deleteAllCache(context, result));
+                check(active == null) { "Cannot clear cache while compressing" }
+                result.success(Utility(channelName).deleteAllCache(context));
             }
             "setLogLevel" -> {
                 val logLevel = call.argument<Int>("logLevel")!!
@@ -71,8 +90,12 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 result.success(true);
             }
             "cancelCompression" -> {
-                transcodeFuture?.cancel(true)
-                result.success(false);
+                active?.let { session ->
+                    session.future?.cancel(true)
+                    active = null
+                    session.result.success(null)
+                }
+                result.success(null)
             }
             "compressVideo" -> {
                 val path = call.argument<String>("path")!!
@@ -83,9 +106,13 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 val includeAudio = call.argument<Boolean>("includeAudio") ?: true
                 val frameRate = if (call.argument<Int>("frameRate")==null) 30 else call.argument<Int>("frameRate")
 
-                val tempDir: String = context.getExternalFilesDir("video_compress_zero")!!.absolutePath
-                val out = SimpleDateFormat("yyyy-MM-dd hh-mm-ss").format(Date())
-                val destPath: String = tempDir + File.separator + "VID_" + out + path.hashCode() + ".mp4"
+                check(active == null) { "Already compressing" }
+                require(quality in 0..7 && frameRate != null && frameRate > 0) { "Invalid quality or frame rate" }
+                require(startTime == null || startTime >= 0) { "Invalid start time" }
+                require(duration == null || duration > 0) { "Invalid duration" }
+                val tempDir = context.getExternalFilesDir("video_compress_zero") ?: error("External storage unavailable")
+                check(tempDir.exists() || tempDir.mkdirs()) { "Cannot create output directory" }
+                val destPath = File(tempDir, UUID.randomUUID().toString() + ".mp4").absolutePath
 
                 var videoTrackStrategy: TrackStrategy = DefaultVideoStrategy.atMost(340).build();
                 val audioTrackStrategy: TrackStrategy
@@ -104,11 +131,10 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                     }
                     3 -> {
 
-                        assert(value = frameRate != null)
                         videoTrackStrategy = DefaultVideoStrategy.Builder()
                                 .keyFrameInterval(3f)
                                 .bitRate(1280 * 720 * 4.toLong())
-                                .frameRate(frameRate!!) // will be capped to the input frameRate
+                                .frameRate(frameRate) // will be capped to the input frameRate
                                 .build()
                     }
                     4 -> {
@@ -138,39 +164,67 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 }
 
                 val dataSource = if (startTime != null || duration != null){
-                    val source = UriDataSource(context, Uri.parse(path))
-                    TrimDataSource(source, (1000 * 1000 * (startTime ?: 0)).toLong(), (1000 * 1000 * (duration ?: 0)).toLong())
+                    val source = UriDataSource(context, sourceUri(path))
+                    val length = Utility(channelName).getMediaInfoJson(context, path).getLong("duration") * 1000L
+                    val offsets = NativeRules.trimOffsets(length, startTime, duration)
+                    TrimDataSource(source, offsets.first, offsets.second)
                 }else{
-                    UriDataSource(context, Uri.parse(path))
+                    UriDataSource(context, sourceUri(path))
                 }
 
 
-                transcodeFuture = Transcoder.into(destPath!!)
+                val session = Session(result, destPath)
+                active = session
+                try {
+                    session.future = Transcoder.into(destPath)
                         .addDataSource(dataSource)
                         .setAudioTrackStrategy(audioTrackStrategy)
                         .setVideoTrackStrategy(videoTrackStrategy)
                         .setListener(object : TranscoderListener {
                             override fun onTranscodeProgress(progress: Double) {
-                                channel.invokeMethod("updateProgress", progress * 100.00)
-                            }
-                            override fun onTranscodeCompleted(successCode: Int) {
-                                channel.invokeMethod("updateProgress", 100.00)
-                                val json = Utility(channelName).getMediaInfoJson(context, destPath)
-                                json.put("isCancel", false)
-                                result.success(json.toString())
-                                if (deleteOrigin) {
-                                    File(path).delete()
+                                worker.execute {
+                                    if (active === session) main.post {
+                                        if (_channel === channel) channel.invokeMethod("updateProgress", progress * 100)
+                                    }
                                 }
                             }
-
-                            override fun onTranscodeCanceled() {
-                                result.success(null)
+                            override fun onTranscodeCompleted(successCode: Int) {
+                                worker.execute {
+                                    if (active !== session) { File(destPath).delete(); return@execute }
+                                    active = null
+                                    try {
+                                        val json = Utility(channelName).getMediaInfoJson(context, destPath)
+                                        json.put("isCancel", false)
+                                        if (deleteOrigin && sourceUri(path).scheme == "file") File(sourceUri(path).path!!).delete()
+                                        main.post { if (_channel === channel) channel.invokeMethod("updateProgress", 100.0) }
+                                        result.success(json.toString())
+                                    } catch (exception: Exception) {
+                                        File(destPath).delete()
+                                        result.error("video_compress_zero", "Output metadata failed", exception.message)
+                                    }
+                                }
                             }
-
+                            override fun onTranscodeCanceled() {
+                                worker.execute {
+                                    File(destPath).delete()
+                                    if (active === session) { active = null; result.success(null) }
+                                }
+                            }
                             override fun onTranscodeFailed(exception: Throwable) {
-                                result.error("video_compress_transcode", "Failed to transcode video", exception.message)
+                                worker.execute {
+                                    File(destPath).delete()
+                                    if (active === session) {
+                                        active = null
+                                        result.error("video_compress_transcode", "Failed to transcode video", exception.message)
+                                    }
+                                }
                             }
                         }).transcode()
+                } catch (exception: Exception) {
+                    active = null
+                    File(destPath).delete()
+                    throw exception
+                }
             }
             else -> {
                 result.notImplemented()
@@ -183,6 +237,13 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        worker.execute {
+            active?.let { session ->
+                session.future?.cancel(true)
+                session.result.error("video_compress_zero", "Engine detached", null)
+            }
+            active = null
+        }
         _channel?.setMethodCallHandler(null)
         _context = null
         _channel = null
@@ -193,6 +254,11 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
         channel.setMethodCallHandler(this)
         _context = context
         _channel = channel
+    }
+
+    private fun sourceUri(path: String): Uri {
+        val uri = Uri.parse(path)
+        return if (uri.scheme.isNullOrEmpty()) Uri.fromFile(File(path)) else uri
     }
 
     companion object {
