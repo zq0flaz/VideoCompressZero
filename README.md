@@ -111,16 +111,18 @@ build the example with `flutter build apk --release`, then run
 `./gradlew :video_compress_zero:testDebugUnitTest` from `example/android` (use
 `gradlew.bat` on Windows).
 
-Native iOS regression tests run in a fresh consumer in CI. The repository's
-example remains SPM-only. `scripts_setup_ios_tests.rb <host>/ios` connects the
-existing `example/ios/RunnerTests/RunnerTests.swift` suite to a CocoaPods consumer;
-run `pod install` in that host after wiring the target, then `xcodebuild test`.
-The suite creates synthetic media for thumbnail timing/orientation, trimmed
-exports, invalid arguments and cancellation. It does not require personal videos.
+The iOS regression suite is in `example/ios/RunnerTests/RunnerTests.swift`.
+It runs locally in an Xcode test host configured by the developer; local AI test
+setup scripts are not included in this repository or required by CI. The suite
+creates synthetic media for thumbnail timing/orientation, trimmed exports,
+invalid arguments and cancellation. It does not require personal videos.
 
 CI pins Flutter 3.41.0, 3.41.9, 3.44.0 and 3.47.7 for Dart checks and native
 Android/iOS builds. Both CocoaPods and SPM consumers are built for iOS. Configured
-CI coverage is not a claim that every matrix job has already passed.
+CI covers Dart checks, Android builds/JVM unit tests, and iOS consumer builds.
+Native iOS runtime tests and the custom AGP 9 toolchain checks are local-only;
+they are not run by this workflow. Configured coverage is not a claim that every
+matrix job has already passed.
 
 
 ### Imports
