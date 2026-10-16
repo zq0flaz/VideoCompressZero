@@ -1,10 +1,11 @@
 name: video_compress_zero_example
 description: Demonstrates how to use the video_compress plugin.
 publish_to: 'none'
+version: 1.0.0+1
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
-  flutter: ">=3.38.0"
+  sdk: ">=3.11.0 <4.0.0"
+  flutter: ">=3.41.0"
 
 dependencies:
   flutter:
@@ -16,7 +17,7 @@ dependencies:
   image_picker: ^1.0.0
   video_player: ^2.8.0
   file_picker: ^10.2.0
-  image_gallery_saver_plus: ^4.0.1
+  gal: ^2.3.2
   video_compress_zero:
     path: ../
   #file_selector: ^1.0.0

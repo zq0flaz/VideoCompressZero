@@ -70,3 +70,22 @@ ios/Flutter/flutter_export_environment.sh
 !**/ios/**/default.pbxuser
 !**/ios/**/default.perspectivev3
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Credentials
+*.pem
+*.p12
+*.p8
+*.keystore
+*.jks
+
+# Private configuration
+secrets.json
+credentials.json
+service-account*.json
+# Generated Flutter Swift packages
+**/ios/Flutter/ephemeral/

@@ -1,3 +1,13 @@
+## Unreleased
+
+- Set the supported baseline to Flutter 3.41 / Dart 3.11.
+- Correct Android media permissions and preserve literal thumbnail paths.
+- Apply frame rate to every Android quality and always materialize output.
+- Wait for native cancellation cleanup before unlocking compression/cache access.
+- Close progress streams and clear channel handlers on disposal.
+- Support external Kotlin on AGP 8 and conditional built-in Kotlin on AGP 9.
+- Add pinned Flutter 3.41–3.47.7 build matrices and restore native iOS test wiring.
+
 ## 3.1.4+202511001
 - fix isCancel status on IOS
 - update methodChannel name for Android 

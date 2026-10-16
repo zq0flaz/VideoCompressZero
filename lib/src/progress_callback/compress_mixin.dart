@@ -32,6 +32,10 @@ class CompressMixin {
   bool _wasCancelled = false; // last known cancellation state from native
   String? _activeSessionId;
   int _processingGeneration = 0;
+  Completer<void>? _processingDone;
+
+  @protected
+  Future<void>? get processingCompletion => _processingDone?.future;
 
   @protected
   int get processingGeneration => _processingGeneration;
@@ -48,7 +52,13 @@ class CompressMixin {
   @protected
   void setProcessingStatus(bool status, {int? generation}) {
     if (generation != null && generation != _processingGeneration) return;
-    if (status) _processingGeneration++;
+    if (status) {
+      _processingGeneration++;
+      _processingDone = Completer<void>();
+    } else {
+      _processingDone?.complete();
+      _processingDone = null;
+    }
     _isCompressing = status;
   }
 
@@ -57,7 +67,8 @@ class CompressMixin {
       case 'updateProgress':
         debugPrint('updateProgress: ${call.arguments}');
         final progress = double.tryParse(call.arguments.toString());
-        if (progress != null) compressProgress$.next(progress);
+        if (progress != null && progress.isFinite)
+          compressProgress$.next(progress.clamp(0, 100));
         break;
     }
   }
@@ -92,14 +103,14 @@ class CompressMixin {
             _activeSessionId = null;
             debugPrint('compression completed: ${event['sessionId']}');
             // Clear compressing status when iOS confirms completion
-            _isCompressing = false;
+            _isCompressing = _processingDone != null;
             _wasCancelled = false;
             break;
           case 'cancelled':
             _activeSessionId = null;
             debugPrint('compression cancelled: ${event['sessionId']}');
             // Clear compressing status when iOS confirms cancellation
-            _isCompressing = false;
+            _isCompressing = _processingDone != null;
             _wasCancelled = true;
             break;
           case 'failed':
@@ -107,7 +118,7 @@ class CompressMixin {
             debugPrint(
                 'compression failed: ${event['sessionId']} - ${event['error']}');
             // Clear compressing status when iOS confirms failure
-            _isCompressing = false;
+            _isCompressing = _processingDone != null;
             _wasCancelled = false;
             break;
         }
@@ -121,5 +132,7 @@ class CompressMixin {
   void disposeProcessCallback() {
     _eventSub?.cancel();
     _eventSub = null;
+    channel.setMethodCallHandler(null);
+    compressProgress$.close();
   }
 }

@@ -10,6 +10,7 @@ import com.otaliastudios.transcoder.strategy.DefaultAudioStrategy
 import com.otaliastudios.transcoder.strategy.DefaultVideoStrategy
 import com.otaliastudios.transcoder.strategy.RemoveTrackStrategy
 import com.otaliastudios.transcoder.strategy.TrackStrategy
+import com.otaliastudios.transcoder.validator.WriteAlwaysValidator
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.BinaryMessenger
 import com.otaliastudios.transcoder.internal.utils.Logger
@@ -17,6 +18,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import java.io.File
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.Executors
@@ -38,6 +40,8 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
     private val main = Handler(Looper.getMainLooper())
     private class Session(val result: MethodChannel.Result, val dest: String) {
         var future: Future<Void>? = null
+        var cancellationRequested = false
+        var hasProgress = false
     }
     private var active: Session? = null
 
@@ -61,6 +65,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
         }
 
         when (call.method) {
+            "getAndroidSdkVersion" -> result.success(Build.VERSION.SDK_INT)
             "getByteThumbnail" -> {
                 val path = call.argument<String>("path")
                 val quality = call.argument<Int>("quality")!!
@@ -91,9 +96,10 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
             }
             "cancelCompression" -> {
                 active?.let { session ->
-                    session.future?.cancel(true)
-                    active = null
-                    session.result.success(null)
+                    session.cancellationRequested = true
+                    // Cancelling a Future before its callable starts suppresses
+                    // Transcoder's terminal listener. Wait for proof of execution.
+                    if (session.hasProgress) session.future?.cancel(true)
                 }
                 result.success(null)
             }
@@ -120,14 +126,14 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 when (quality) {
 
                     0 -> {
-                      videoTrackStrategy = DefaultVideoStrategy.atMost(720).build()
+                      videoTrackStrategy = DefaultVideoStrategy.atMost(720).frameRate(frameRate).build()
                     }
 
                     1 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(360).build()
+                        videoTrackStrategy = DefaultVideoStrategy.atMost(360).frameRate(frameRate).build()
                     }
                     2 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(640).build()
+                        videoTrackStrategy = DefaultVideoStrategy.atMost(640).frameRate(frameRate).build()
                     }
                     3 -> {
 
@@ -138,16 +144,16 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                                 .build()
                     }
                     4 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(480, 640).build()
+                        videoTrackStrategy = DefaultVideoStrategy.atMost(480, 640).frameRate(frameRate).build()
                     }
                     5 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(540, 960).build()
+                        videoTrackStrategy = DefaultVideoStrategy.atMost(540, 960).frameRate(frameRate).build()
                     }
                     6 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(720, 1280).build()
+                        videoTrackStrategy = DefaultVideoStrategy.atMost(720, 1280).frameRate(frameRate).build()
                     }
                     7 -> {
-                        videoTrackStrategy = DefaultVideoStrategy.atMost(1080, 1920).build()
+                        videoTrackStrategy = DefaultVideoStrategy.atMost(1080, 1920).frameRate(frameRate).build()
                     }                    
                 }
 
@@ -177,14 +183,21 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 active = session
                 try {
                     session.future = Transcoder.into(destPath)
+                        // Always materialize an output, including pass-through inputs
+                        // and trims whose codecs already match the target strategy.
+                        .setValidator(WriteAlwaysValidator())
                         .addDataSource(dataSource)
                         .setAudioTrackStrategy(audioTrackStrategy)
                         .setVideoTrackStrategy(videoTrackStrategy)
                         .setListener(object : TranscoderListener {
                             override fun onTranscodeProgress(progress: Double) {
                                 worker.execute {
-                                    if (active === session) main.post {
-                                        if (_channel === channel) channel.invokeMethod("updateProgress", progress * 100)
+                                    if (active === session) {
+                                        session.hasProgress = true
+                                        if (session.cancellationRequested) session.future?.cancel(true)
+                                        else main.post {
+                                            if (_channel === channel) channel.invokeMethod("updateProgress", progress * 100)
+                                        }
                                     }
                                 }
                             }
@@ -192,6 +205,11 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                                 worker.execute {
                                     if (active !== session) { File(destPath).delete(); return@execute }
                                     active = null
+                                    if (session.cancellationRequested) {
+                                        File(destPath).delete()
+                                        result.success(null)
+                                        return@execute
+                                    }
                                     try {
                                         val json = Utility(channelName).getMediaInfoJson(context, destPath)
                                         json.put("isCancel", false)
@@ -215,7 +233,8 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                                     File(destPath).delete()
                                     if (active === session) {
                                         active = null
-                                        result.error("video_compress_transcode", "Failed to transcode video", exception.message)
+                                        if (session.cancellationRequested) result.success(null)
+                                        else result.error("video_compress_transcode", "Failed to transcode video", exception.message)
                                     }
                                 }
                             }
@@ -239,10 +258,11 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         worker.execute {
             active?.let { session ->
-                session.future?.cancel(true)
+                session.cancellationRequested = true
+                if (session.hasProgress) session.future?.cancel(true)
                 session.result.error("video_compress_zero", "Engine detached", null)
             }
-            active = null
+            // Keep ownership until the listener confirms the writer stopped.
         }
         _channel?.setMethodCallHandler(null)
         _context = null

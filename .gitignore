@@ -47,3 +47,8 @@ build/
 .swiftpm/
 !example/ios/Podfile
 .native_validation/
+
+# Disposable compatibility consumers
+compatibility_host/
+
+__pycache__/

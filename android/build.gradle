@@ -22,24 +22,22 @@ rootProject.allprojects {
 }
 
 apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
+// Flutter 3.41 consumers retain external KGP. AGP 9 consumers can use
+// built-in Kotlin without applying a second Kotlin Android plugin.
+def agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')[0].toInteger()
+def builtInKotlin = agpMajor >= 9 && providers.gradleProperty('android.builtInKotlin').orElse('true').get().toBoolean()
+if (!builtInKotlin) {
+    apply plugin: 'kotlin-android'
+}
 
 android {
     namespace 'com.zflash.video_compress'
-    
-    // Conditional for compatibility with AGP <4.2.
-    if (project.android.hasProperty("namespace")) {
-        namespace 'com.zflash.video_compress'
-    }
     
     compileSdk 35
 
     compileOptions {
         sourceCompatibility 17
         targetCompatibility 17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
     }
 
     sourceSets {
@@ -49,8 +47,22 @@ android {
         minSdkVersion 21
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
-    lintOptions {
+    lint {
         disable 'InvalidPackage'
+    }
+}
+
+if (builtInKotlin) {
+    kotlin {
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+        }
+    }
+} else {
+    // Flutter 3.41 hosts may still select KGP 1.x. Do not require the
+    // compilerOptions DSL on that compatibility path.
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions.jvmTarget = "17"
     }
 }
 

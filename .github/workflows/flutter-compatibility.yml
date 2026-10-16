@@ -2,46 +2,43 @@ name: Flutter compatibility
 
 on:
   push:
-    branches:
-      - master
-      - chore/flutter-latest-compatibility
+    branches: [master, chore/flutter-latest-compatibility]
   pull_request:
-    branches:
-      - master
+    branches: [master]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   dart-checks:
-    name: Flutter ${{ matrix.flutter-version || 'stable' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        flutter-version: ['3.41.9', '']
+        flutter-version: ['3.41.0', '3.41.9', '3.44.0', '3.47.7']
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
           flutter-version: ${{ matrix.flutter-version }}
           cache: true
-      - name: Flutter version
-        run: flutter --version
-      - name: Resolve package dependencies
-        run: flutter pub get
-      - name: Analyze package
-        run: flutter analyze
-      - name: Test package
-        run: flutter test
-      - name: Resolve example dependencies
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter pub get
         working-directory: example
-        run: flutter pub get
-      - name: Analyze example
+      - run: flutter analyze
         working-directory: example
-        run: flutter analyze
+      - run: flutter test
+        working-directory: example
 
   android-native:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter-version: ['3.41.0', '3.41.9', '3.44.0', '3.47.7']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -50,9 +47,8 @@ jobs:
           java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ matrix.flutter-version }}
           cache: true
-      - run: flutter --version
       - run: flutter pub get
       - run: flutter build apk --release
         working-directory: example
@@ -62,27 +58,73 @@ jobs:
   ios-native:
     runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
+        flutter-version: ['3.41.0', '3.41.9', '3.44.0', '3.47.7']
         packaging: [cocoapods, swiftpm]
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: ${{ matrix.flutter-version }}
           cache: true
-      - run: flutter --version
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - run: gem install cocoapods xcodeproj --no-document
+      # A fresh consumer avoids depending on the example's migrated project,
+      # its cached package graph, or its SPM-only configuration.
+      - name: Create consumer
+        run: |
+          flutter create --platforms=ios --org com.example compatibility_host
+          cd compatibility_host
+          flutter pub add 'video_compress_zero:{"path":"../"}'
       - run: flutter config --no-enable-swift-package-manager
         if: matrix.packaging == 'cocoapods'
       - run: flutter config --enable-swift-package-manager
         if: matrix.packaging == 'swiftpm'
-      - run: flutter pub get
-        working-directory: example
-      - run: ruby scripts_setup_ios_tests.rb
-        if: matrix.packaging == 'cocoapods'
       - run: flutter build ios --simulator --debug
-        working-directory: example
-      - name: Native cancellation and argument tests
+        working-directory: compatibility_host
+      - name: Wire native regression tests (CocoaPods)
+        if: matrix.packaging == 'cocoapods'
+        run: |
+          ruby scripts_setup_ios_tests.rb compatibility_host/ios
+          cd compatibility_host/ios
+          pod install
+      - name: Run native media regression tests
         if: matrix.packaging == 'cocoapods'
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; print(next(d["udid"] for group in json.load(sys.stdin)["devices"].values() for d in group if d["name"].startswith("iPhone")))')
-          xcodebuild test -workspace example/ios/Runner.xcworkspace -scheme Runner -destination "platform=iOS Simulator,id=$DEVICE_ID" CODE_SIGNING_ALLOWED=NO
+          xcodebuild test -workspace compatibility_host/ios/Runner.xcworkspace -scheme Runner -destination "platform=iOS Simulator,id=$DEVICE_ID" CODE_SIGNING_ALLOWED=NO
+
+  android-agp9:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flutter-version: '3.44.0'
+            built-in-kotlin: 'false'
+          - flutter-version: '3.47.7'
+            built-in-kotlin: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ matrix.flutter-version }}
+          cache: true
+      - name: Create AGP 9 consumer
+        run: |
+          flutter create --platforms=android compatibility_host
+          cd compatibility_host
+          flutter pub add 'video_compress_zero:{"path":"../"}'
+      - name: Configure AGP 9 toolchain
+        env:
+          BUILT_IN_KOTLIN: ${{ matrix.built-in-kotlin }}
+        run: python3 scripts_configure_agp9.py compatibility_host/android
+      - run: flutter build apk --debug
+        working-directory: compatibility_host

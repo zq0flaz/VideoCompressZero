@@ -1,0 +1,7 @@
+# Local validation and CI-only material
+.github/
+.fvm/
+.native_validation/
+compatibility_host/
+scripts_setup_ios_tests.rb
+scripts_configure_agp9.py

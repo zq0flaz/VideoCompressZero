@@ -1,24 +1,25 @@
 import 'dart:async';
-
 import 'dart:ui';
 
 class ObservableBuilder<T> {
-  StreamController<T> _observable = StreamController.broadcast();
-  bool notSubscribed = true;
+  final StreamController<T> _observable = StreamController<T>.broadcast();
+  bool get notSubscribed => !_observable.hasListener;
 
   void next(T value) {
-    _observable.add(value);
+    if (!_observable.isClosed) _observable.add(value);
   }
 
   Subscription subscribe(void Function(T event) onData,
       {Function? onError, void Function()? onDone, bool? cancelOnError}) {
-    notSubscribed = false;
-    final streamSubscription = _observable.stream.listen(onData,
+    final subscription = _observable.stream.listen(onData,
         onError: onError, onDone: onDone, cancelOnError: cancelOnError);
     return Subscription(() {
-      streamSubscription.cancel();
-      notSubscribed = true;
+      subscription.cancel();
     });
+  }
+
+  void close() {
+    _observable.close();
   }
 }
 

@@ -2,16 +2,14 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:gal/gal.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress_zero/video_compress_zero.dart';
+import 'package:video_player/video_player.dart';
+
+import 'compression_controller.dart';
 import 'video_thumbnail.dart';
 
-/// Example demonstrating video compression with cancel functionality
-/// Shows:
-/// - Progress tracking
-/// - Cancel during compression
-/// - Status messages
-/// - Event-based state updates
 class CompressWithCancelExample extends StatefulWidget {
   const CompressWithCancelExample({super.key});
 
@@ -21,456 +19,275 @@ class CompressWithCancelExample extends StatefulWidget {
 }
 
 class _CompressWithCancelExampleState extends State<CompressWithCancelExample> {
+  late final CompressionController _controller;
   Subscription? _subscription;
-  double _progress = 0;
-  bool _isCompressing = false;
-  String _statusMessage = 'Ready to compress';
-  MediaInfo? _originalInfo;
-  MediaInfo? _compressedInfo;
-  String? _selectedFilePath;
 
   @override
   void initState() {
     super.initState();
-    _setupProgressListener();
+    _controller = CompressionController(
+      pickVideo: () async {
+        if (Platform.isMacOS) {
+          final files = await FilePicker.platform.pickFiles(
+              type: FileType.custom,
+              allowedExtensions: ['mov', 'mp4'],
+              dialogTitle: 'Select a video');
+          return files?.files.single.path;
+        }
+        return (await ImagePicker().pickVideo(source: ImageSource.gallery))
+            ?.path;
+      },
+      readInfo: VideoCompress.getMediaInfo,
+      compress: (path, quality, frameRate, audio) =>
+          VideoCompress.compressVideo(path,
+              quality: quality,
+              frameRate: frameRate,
+              includeAudio: audio,
+              deleteOrigin: false),
+      cancel: VideoCompress.cancelCompression,
+      save: Gal.putVideo,
+    );
+    _subscription =
+        VideoCompress.compressProgress$.subscribe(_controller.updateProgress);
   }
 
   @override
   void dispose() {
     _subscription?.unsubscribe();
+    _controller.dispose();
     super.dispose();
   }
 
-  /// Setup progress listener for compression events
-  void _setupProgressListener() {
-    _subscription = VideoCompress.compressProgress$.subscribe((progress) {
-      setState(() {
-        _progress = progress;
-        if (progress > 0 && progress < 100) {
-          _statusMessage = 'Compressing... ${progress.toStringAsFixed(1)}%';
-        }
-      });
-    });
-  }
-
-  /// Pick a video file from gallery or file picker
-  Future<void> _pickVideo() async {
-    try {
-      File? file;
-
-      if (Platform.isMacOS) {
-        final result = await FilePicker.platform.pickFiles(
-          dialogTitle: "Select a video",
-          allowedExtensions: ['mov', 'mp4', 'avi', 'mkv'],
-          type: FileType.custom,
-        );
-        if (result != null && result.files.single.path != null) {
-          file = File(result.files.single.path!);
-        }
-      } else {
-        final picker = ImagePicker();
-        final pickedFile = await picker.pickVideo(source: ImageSource.gallery);
-        if (pickedFile != null) {
-          file = File(pickedFile.path);
-        }
-      }
-
-      if (file == null) {
-        return;
-      }
-
-      setState(() {
-        _selectedFilePath = file!.path;
-        _statusMessage = 'Video selected: ${file.path.split('/').last}';
-        _compressedInfo = null;
-      });
-
-      // Get original video info
-      final info = await VideoCompress.getMediaInfo(file.path);
-      setState(() {
-        _originalInfo = info;
-        _statusMessage =
-            'Original: ${(info.filesize! / (1024 * 1024)).toStringAsFixed(2)}MB, '
-            '${info.width}x${info.height}';
-      });
-    } catch (e) {
-      setState(() {
-        _statusMessage = 'Error picking video: $e';
-      });
-    }
-  }
-
-  /// Start video compression
-  Future<void> _startCompression() async {
-    if (_selectedFilePath == null) {
-      setState(() {
-        _statusMessage = 'Please select a video first';
-      });
-      return;
-    }
-
-    if (_isCompressing) {
-      setState(() {
-        _statusMessage = 'Already compressing, please wait or cancel';
-      });
-      return;
-    }
-
-    setState(() {
-      _isCompressing = true;
-      _progress = 0;
-      _statusMessage = 'Starting compression...';
-      _compressedInfo = null;
-    });
-
-    try {
-      await VideoCompress.setLogLevel(0);
-
-      final info = await VideoCompress.compressVideo(
-        _selectedFilePath!,
-        quality: VideoQuality.Res960x540Quality,
-        deleteOrigin: false,
-        includeAudio: true,
-        frameRate: 30,
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: _controller,
+        builder: (context, _) {
+          final c = _controller;
+          return PopScope(
+            canPop: !c.busy,
+            child: Scaffold(
+              appBar:
+                  AppBar(title: const Text('Video Compress Zero'), actions: [
+                IconButton(
+                    tooltip: 'Video thumbnail',
+                    icon: const Icon(Icons.image_outlined),
+                    onPressed: c.busy
+                        ? null
+                        : () => Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                                builder: (_) => const VideoThumbnail()))),
+                IconButton(
+                    tooltip: 'Reset',
+                    icon: const Icon(Icons.refresh),
+                    onPressed: c.busy ? null : c.reset),
+              ]),
+              body: SafeArea(
+                  child: Center(
+                      child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 680),
+                child: ListView(padding: const EdgeInsets.all(16), children: [
+                  Semantics(
+                      liveRegion: true,
+                      child: Card(
+                          child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(c.message)))),
+                  if (c.busy || c.progress > 0) ...[
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(
+                        value: c.phase == CompressionPhase.picking ||
+                                c.phase == CompressionPhase.saving
+                            ? null
+                            : c.progress / 100),
+                    if (c.phase == CompressionPhase.compressing ||
+                        c.phase == CompressionPhase.cancelling)
+                      Text('${c.progress.toStringAsFixed(1)}%'),
+                  ],
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<VideoQuality>(
+                    initialValue: c.quality,
+                    decoration: const InputDecoration(labelText: 'Quality'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: VideoQuality.LowQuality, child: Text('Low')),
+                      DropdownMenuItem(
+                          value: VideoQuality.MediumQuality,
+                          child: Text('Medium')),
+                      DropdownMenuItem(
+                          value: VideoQuality.Res960x540Quality,
+                          child: Text('540p')),
+                      DropdownMenuItem(
+                          value: VideoQuality.Res1280x720Quality,
+                          child: Text('720p')),
+                      DropdownMenuItem(
+                          value: VideoQuality.Res1920x1080Quality,
+                          child: Text('1080p')),
+                    ],
+                    onChanged: c.busy
+                        ? null
+                        : (value) {
+                            if (value != null) {
+                              setState(() => c.quality = value);
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                      initialValue: c.frameRate,
+                      decoration:
+                          const InputDecoration(labelText: 'Frame rate'),
+                      items: [24, 30, 60]
+                          .map((fps) => DropdownMenuItem(
+                              value: fps, child: Text('$fps fps')))
+                          .toList(),
+                      onChanged: c.busy
+                          ? null
+                          : (value) {
+                              if (value != null) {
+                                setState(() => c.frameRate = value);
+                              }
+                            }),
+                  SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Include audio'),
+                      value: c.includeAudio,
+                      onChanged: c.busy
+                          ? null
+                          : (value) => setState(() => c.includeAudio = value)),
+                  FilledButton.icon(
+                      onPressed: c.busy ? null : c.pick,
+                      icon: const Icon(Icons.video_library_outlined),
+                      label: const Text('Select Video')),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                      onPressed: c.busy || c.path == null ? null : c.start,
+                      icon: const Icon(Icons.compress),
+                      label: const Text('Start Compression')),
+                  if (c.phase == CompressionPhase.compressing ||
+                      c.phase == CompressionPhase.cancelling) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                        onPressed: c.phase == CompressionPhase.compressing
+                            ? c.requestCancel
+                            : null,
+                        icon: const Icon(Icons.cancel_outlined),
+                        label: const Text('Cancel Compression')),
+                  ],
+                  if (c.original != null)
+                    _infoCard('Original video', c.original!),
+                  if (c.result != null) ...[
+                    _infoCard('Compressed video', c.result!),
+                    Text(
+                        'Size change: ${sizeChange(c.original?.filesize, c.result?.filesize)}'),
+                    if (c.elapsed != null)
+                      Text(
+                          'Processing time: ${(c.elapsed!.inMilliseconds / 1000).toStringAsFixed(1)} s'),
+                    const SizedBox(height: 12),
+                    VideoPreview(
+                        key: ValueKey(c.result!.path), path: c.result!.path!),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                        onPressed: c.busy ? null : c.saveResult,
+                        icon: const Icon(Icons.save_alt),
+                        label: Text(c.phase == CompressionPhase.saving
+                            ? 'Saving…'
+                            : 'Save to Gallery')),
+                  ],
+                  const SizedBox(height: 16),
+                  const Text(
+                      'Choose a video, adjust quality, then start compression. Your original video is preserved. Preview the result before saving it to your gallery.'),
+                ]),
+              ))),
+            ),
+          );
+        },
       );
 
-      if (info != null) {
-        setState(() {
-          _compressedInfo = info;
-          _isCompressing = false;
+  Widget _infoCard(String title, MediaInfo info) => Card(
+          child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Text('Size: ${formatSize(info.filesize)}'),
+          Text('Resolution: ${info.width ?? '–'} × ${info.height ?? '–'}'),
+          Text('Duration: ${formatDuration(info.duration)}'),
+        ]),
+      ));
+}
 
-          if (info.isCancel == true) {
-            _statusMessage = 'Compression cancelled by user';
-            _progress = 0;
-          } else {
-            _progress = 100;
-            final originalSize = _originalInfo?.filesize ?? 0;
-            final compressedSize = info.filesize ?? 0;
-            final reduction = originalSize > 0
-                ? ((originalSize - compressedSize) / originalSize * 100)
-                : 0;
+class VideoPreview extends StatefulWidget {
+  const VideoPreview({super.key, required this.path});
+  final String path;
+  @override
+  State<VideoPreview> createState() => _VideoPreviewState();
+}
 
-            _statusMessage =
-                'Completed! Compressed: ${(compressedSize / (1024 * 1024)).toStringAsFixed(2)}MB '
-                '(${reduction.toStringAsFixed(1)}% reduction)';
-          }
-        });
-      } else {
-        setState(() {
-          _isCompressing = false;
-          _statusMessage = 'Compression returned null';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _isCompressing = false;
-        _progress = 0;
-        _statusMessage = 'Error: $e';
-      });
-    }
+class _VideoPreviewState extends State<VideoPreview> {
+  late final VideoPlayerController _player;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _player = VideoPlayerController.file(File(widget.path));
+    _initialize();
   }
 
-  /// Cancel ongoing compression
-  Future<void> _cancelCompression() async {
-    if (!_isCompressing) {
-      setState(() {
-        _statusMessage = 'No compression in progress';
-      });
-      return;
-    }
-
+  Future<void> _initialize() async {
     try {
-      setState(() {
-        _statusMessage = 'Cancelling compression...';
-      });
-
-      await VideoCompress.cancelCompression();
-
-      setState(() {
-        // compressVideo() will resolve shortly with MediaInfo.isCancel == true.
-        // There's no direct isCancel flag on VideoCompress; use the returned MediaInfo.
-        _statusMessage =
-            'Cancellation requested, status cancel ${VideoCompress.isCancel}';
-        // Optionally reset UI immediately; final state updates when compressVideo completes.
-        _isCompressing = false;
-        _progress = 0;
-      });
-    } catch (e) {
-      setState(() {
-        _statusMessage = 'Error cancelling: $e';
-      });
+      await _player.initialize();
+      if (mounted) setState(() {});
+    } catch (_) {
+      if (mounted) {
+        setState(() =>
+            _error = 'Preview unavailable. You can still save the video.');
+      }
     }
   }
 
-  /// Clear all data and reset
-  void _reset() {
-    setState(() {
-      _selectedFilePath = null;
-      _originalInfo = null;
-      _compressedInfo = null;
-      _progress = 0;
-      _isCompressing = false;
-      _statusMessage = 'Ready to compress';
-    });
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Video Compress Zero'),
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
-              if (value == 'thumbnail') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => VideoThumbnail(),
-                  ),
-                );
-              }
-            },
-            itemBuilder: (BuildContext context) => [
-              const PopupMenuItem(
-                value: 'thumbnail',
-                child: Row(
-                  children: [
-                    Icon(Icons.image),
-                    SizedBox(width: 8),
-                    Text('Video Thumbnail'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _reset,
-            tooltip: 'Reset',
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Status Card
-            Card(
-              color: _isCompressing
-                  ? Colors.blue.shade50
-                  : (_compressedInfo?.isCancel == true
-                      ? Colors.orange.shade50
-                      : Colors.grey.shade50),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          _isCompressing
-                              ? Icons.hourglass_empty
-                              : (_compressedInfo?.isCancel == true
-                                  ? Icons.cancel
-                                  : Icons.info_outline),
-                          color: _isCompressing
-                              ? Colors.blue
-                              : (_compressedInfo?.isCancel == true
-                                  ? Colors.orange
-                                  : Colors.grey),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Status',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _statusMessage,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Progress Indicator
-            if (_isCompressing || _progress > 0)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Progress: ${_progress.toStringAsFixed(1)}%',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      LinearProgressIndicator(
-                        value: _progress / 100,
-                        backgroundColor: Colors.grey.shade300,
-                        minHeight: 8,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            const SizedBox(height: 16),
-
-            // Original Video Info
-            if (_originalInfo != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Original Video',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      _buildInfoRow('Size',
-                          '${(_originalInfo!.filesize! / (1024 * 1024)).toStringAsFixed(2)} MB'),
-                      _buildInfoRow('Resolution',
-                          '${_originalInfo!.width} x ${_originalInfo!.height}'),
-                      _buildInfoRow('Duration',
-                          '${(_originalInfo!.duration! / 1000).toStringAsFixed(2)} s'),
-                      if (_originalInfo!.orientation != null)
-                        _buildInfoRow(
-                            'Orientation', '${_originalInfo!.orientation}°'),
-                    ],
-                  ),
-                ),
-              ),
-
-            // Compressed Video Info
-            if (_compressedInfo != null && _compressedInfo!.isCancel != true)
-              Card(
-                color: Colors.green.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Compressed Video',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      _buildInfoRow('Size',
-                          '${(_compressedInfo!.filesize! / (1024 * 1024)).toStringAsFixed(2)} MB'),
-                      _buildInfoRow('Resolution',
-                          '${_compressedInfo!.width} x ${_compressedInfo!.height}'),
-                      _buildInfoRow('Duration',
-                          '${(_compressedInfo!.duration! / 1000).toStringAsFixed(2)} s'),
-                      if (_originalInfo != null)
-                        _buildInfoRow(
-                          'Reduction',
-                          '${((_originalInfo!.filesize! - _compressedInfo!.filesize!) / _originalInfo!.filesize! * 100).toStringAsFixed(1)}%',
-                          valueColor: Colors.green,
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-
-            const SizedBox(height: 24),
-
-            // Action Buttons
-            ElevatedButton.icon(
-              onPressed: _pickVideo,
-              icon: const Icon(Icons.video_library),
-              label: const Text('Select Video'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.all(16),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            ElevatedButton.icon(
-              onPressed: _isCompressing ? null : _startCompression,
-              icon: const Icon(Icons.compress),
-              label: const Text('Start Compression'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.all(16),
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            ElevatedButton.icon(
-              onPressed: _isCompressing ? _cancelCompression : null,
-              icon: const Icon(Icons.cancel),
-              label: const Text('Cancel Compression'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.all(16),
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Instructions
-            Card(
-              color: Colors.blue.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Instructions',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('1. Tap "Select Video" to choose a video file'),
-                    const Text(
-                        '2. Tap "Start Compression" to begin compression'),
-                    const Text('3. Watch the progress bar and status updates'),
-                    const Text('4. Tap "Cancel Compression" anytime to stop'),
-                    const Text('5. Compare original vs compressed file info'),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value, {Color? valueColor}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.w500),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              color: valueColor ?? Colors.black87,
-              fontWeight:
-                  valueColor != null ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-        ],
-      ),
-    );
+    if (_error != null) return Text(_error!);
+    if (!_player.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Column(children: [
+      AspectRatio(
+          aspectRatio: _player.value.aspectRatio > 0
+              ? _player.value.aspectRatio
+              : 16 / 9,
+          child: VideoPlayer(_player)),
+      ValueListenableBuilder<VideoPlayerValue>(
+          valueListenable: _player,
+          builder: (context, value, _) => TextButton.icon(
+                icon: Icon(value.isPlaying ? Icons.pause : Icons.play_arrow),
+                label: Text(value.isPlaying ? 'Pause preview' : 'Play preview'),
+                onPressed: () async {
+                  try {
+                    if (value.isPlaying) {
+                      await _player.pause();
+                    } else {
+                      if (value.position >= value.duration) {
+                        await _player.seekTo(Duration.zero);
+                      }
+                      await _player.play();
+                    }
+                  } catch (_) {
+                    if (mounted) {
+                      setState(() => _error =
+                          'Could not play preview. You can still save the video.');
+                    }
+                  }
+                },
+              )),
+    ]);
   }
 }

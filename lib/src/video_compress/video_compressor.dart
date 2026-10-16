@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'android_permissions.dart';
 import 'package:video_compress_zero/src/progress_callback/compress_mixin.dart';
 import 'package:video_compress_zero/video_compress_zero.dart';
 
@@ -20,14 +20,9 @@ class _VideoCompressImpl extends IVideoCompress {
   @override
   Future<bool> requestPermission() async {
     if (Platform.isAndroid) {
-      var status = await Permission.storage.status;
-      if (status.isDenied) {
-        await Permission.storage.request();
-      }
-      if (await Permission.videos.isRestricted) {
-        await Permission.videos.request();
-      }
-      return status.isGranted;
+      final sdk = await channel.invokeMethod<int>('getAndroidSdkVersion');
+      if (sdk == null) throw StateError('Android SDK version unavailable');
+      return requestAndroidVideoPermission(sdk);
     }
     return true;
   }
@@ -48,6 +43,10 @@ IVideoCompress get VideoCompress => _VideoCompressImpl.instance;
 
 extension Compress on IVideoCompress {
   void dispose() {
+    if (isCompressing) {
+      throw StateError(
+          'Await compression or cancelCompression before disposing');
+    }
     // ignore: invalid_use_of_protected_member
     disposeProcessCallback();
     _VideoCompressImpl._dispose();
@@ -104,7 +103,12 @@ extension Compress on IVideoCompress {
       'position': position,
     }));
 
-    final file = File(Uri.decodeFull(filePath!));
+    if (filePath == null || filePath.isEmpty) {
+      throw StateError('Native thumbnail operation returned no output path');
+    }
+    final file = filePath.startsWith('file:')
+        ? File.fromUri(Uri.parse(filePath))
+        : File(filePath);
 
     return file;
   }
@@ -187,6 +191,9 @@ extension Compress on IVideoCompress {
         final jsonMap = json.decode(jsonStr);
         return MediaInfo.fromJson(jsonMap);
       } else {
+        // Native implementations use null for a cancelled export.
+        // ignore: invalid_use_of_protected_member
+        setCancelled(true);
         return null;
       }
     } catch (e) {
@@ -197,20 +204,15 @@ extension Compress on IVideoCompress {
     }
   }
 
-  /// stop compressing the file that is currently being compressed.
+  /// Stop compression and wait for its terminal native callback.
   /// If there is no compression process, nothing will happen.
   Future<void> cancelCompression() async {
+    // Capture the current request before asking native code to stop. The native
+    // acknowledgement alone must not allow another request to start.
     // ignore: invalid_use_of_protected_member
-    final generation = processingGeneration;
+    final completion = processingCompletion;
     await _invoke<void>('cancelCompression');
-    // Clear the compressing state immediately
-    // ignore: invalid_use_of_protected_member
-    setProcessingStatus(false, generation: generation);
-    // ignore: invalid_use_of_protected_member
-    if (generation == processingGeneration) {
-      // ignore: invalid_use_of_protected_member
-      setCancelled(true);
-    }
+    if (completion != null) await completion;
   }
 
   /// delete the cache folder, please do not put other things

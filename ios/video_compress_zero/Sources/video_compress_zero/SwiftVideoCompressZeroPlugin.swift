@@ -10,6 +10,7 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
         var exporter: AVAssetExportSession?
         var timer: Timer?
         var settled = false
+        var cancellationRequested = false
         init(_ result: @escaping FlutterResult, path: String) { self.result = result; self.path = path }
     }
     private var active: Session?
@@ -35,8 +36,10 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
         switch call.method {
         case "cancelCompression":
             if let session = active {
+                session.cancellationRequested = true
                 session.exporter?.cancelExport()
-                finish(session, value: nil, type: "cancelled")
+                // Setup/export completion settles the original request only after
+                // the media worker stops touching its output.
             }
             result(nil)
         case "setLogLevel": result(nil) // No native media payload logging.
@@ -100,7 +103,7 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
         return ["path": url.path, "title": avController.getMetaDataByTag(asset, key: "title"), "author": avController.getMetaDataByTag(asset, key: "author"), "width": abs(size.width), "height": abs(size.height), "duration": asset.duration.seconds * 1000, "filesize": attributes[.size] ?? 0, "orientation": avController.getVideoOrientation(path) ?? 0]
     }
     private func compress(_ session: Session, path: String, quality: Int, deleteOrigin: Bool, start: Double, duration: Double?, audio: Bool, frameRate: Int) {
-        work.async {
+        work.async { [self] in
             do {
                 let asset = AVURLAsset(url: Utility.getPathUrl(path))
                 guard let video = self.avController.getTrack(asset) else { throw NSError(domain: "video_compress_zero", code: 2) }
@@ -114,7 +117,7 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
                 if audio {
                     for track in asset.tracks(withMediaType: .audio) {
                         guard let outputAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { throw NSError(domain: "video_compress_zero", code: 4) }
-                        let audioRange = CMTimeRangeGetIntersection(range, track.timeRange)
+                        let audioRange = range.intersection(track.timeRange)
                         if audioRange.duration > .zero {
                             try outputAudio.insertTimeRange(audioRange, of: track, at: CMTimeSubtract(audioRange.start, range.start))
                         }
@@ -131,6 +134,10 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
                 exporter.videoComposition = videoComposition
                 DispatchQueue.main.async {
                     guard self.active === session, !session.settled else { return }
+                    if session.cancellationRequested {
+                        self.finish(session, value: nil, type: "cancelled")
+                        return
+                    }
                     session.exporter = exporter
                     session.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
                         guard let self = self, self.active === session else { return }
@@ -153,14 +160,19 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
                             let finalType = type
                             DispatchQueue.main.async {
                                 guard !session.settled else { Utility.deleteFile(url.path); return }
-                                if finalType == "completed", deleteOrigin { Utility.deleteFile(path) }
-                                if finalType != "completed" { Utility.deleteFile(url.path) }
-                                self.finish(session, value: finalValue, type: finalType)
+                                if session.cancellationRequested {
+                                    Utility.deleteFile(url.path)
+                                    self.finish(session, value: nil, type: "cancelled")
+                                } else {
+                                    if finalType == "completed", deleteOrigin { Utility.deleteFile(path) }
+                                    if finalType != "completed" { Utility.deleteFile(url.path) }
+                                    self.finish(session, value: finalValue, type: finalType)
+                                }
                             }
                         }
                     }
                 }
-            } catch { DispatchQueue.main.async { self.finish(session, value: self.failure("Compression setup failed", error.localizedDescription), type: "failed") } }
+            } catch { DispatchQueue.main.async { self.finish(session, value: session.cancellationRequested ? nil : self.failure("Compression setup failed", error.localizedDescription), type: session.cancellationRequested ? "cancelled" : "failed") } }
         }
     }
     private func finish(_ session: Session, value: Any?, type: String) {

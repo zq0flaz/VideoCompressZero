@@ -1,120 +1,50 @@
-# video_compress_example
+# Video Compress Zero example
 
-```dart
-import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:video_compress/video_compress.dart';
+A single screen demonstrates video selection, compression quality and frame rate,
+optional audio, progress, cancellation, output preview and saving to the gallery.
+The thumbnail example is available from the image button in the app bar.
+The original video is preserved. Generated output remains in the plugin's
+cache; save it to the gallery before clearing app data.
 
-void main() {
-  runApp(MyApp());
-}
+## Run and check
 
-class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
-        primarySwatch: Colors.blue,
-      ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
-}
+Use the Flutter version pinned in the repository's `.fvmrc`.
+From this directory:
 
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  _MyHomePageState createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  String _counter = "video";
-
-  @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headline4,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          File file = await ImagePicker.pickVideo(source: ImageSource.gallery);
-          final info = await VideoCompress.compressVideo(
-            file.path,
-            quality: VideoQuality.MediumQuality,
-            deleteOrigin: false,
-          );
-
-          _counter = info.path;
-          setState(() {});
-        },
-        tooltip: 'Increment',
-        child: Icon(Icons.add),
-      ),
-    );
-  }
-}
-
+```sh
+fvm flutter pub get
+fvm flutter analyze
+fvm flutter test
+fvm flutter devices
+fvm flutter run -d <device-id>
 ```
+
+The iOS example uses Swift Package Manager and requires iOS 15 or later.
+`ios/Podfile.cocoapods` preserves the former configuration for reference;
+it is not used by the example. Do not run `pod install` for this app.
+The plugin itself retains its CocoaPods support for other consuming apps.
+
+Photo library access is requested by the gallery plugins when needed. No media
+is uploaded. Android write permission is limited to Android API 29 and earlier.
+macOS has Photos permission declarations, but this plugin currently declares
+only Android and iOS support; the compression demo is supported on those two
+platforms. Desktop branches are not a claim of macOS compression support.
+
+## Device smoke test
+
+Use a synthetic test video rather than personal media:
+
+1. Select an MP4/MOV and check its size, duration and resolution.
+2. Compress at 540p/30 fps, preview playback and audio, then save to Photos.
+3. Verify the saved video in Photos. Repeat with Photos access denied; the
+   output should remain available and the screen should show a retry message.
+4. Start another compression and cancel. Selection, reset and restart must
+   remain disabled until cancellation finishes.
+5. Try a different quality, an output larger than the input, and a video with
+   no audio. Missing metadata should display `Unavailable` rather than crash.
+6. Open the thumbnail screen, cancel selection, then select a video. Navigate
+   back while thumbnail loading is pending and check for lifecycle errors.
+
+Automated tests use fake media paths and operations. They cover state and UI
+behavior without accessing a real photo library. They do not replace device
+checks of native encoding, playback, or Photos permissions.

@@ -95,7 +95,7 @@ does not migrate an existing app. With Flutter 3.38 or newer (3.41+ recommended)
 
 The [example AppDelegate](example/ios/Runner/AppDelegate.swift) and
 [Info.plist](example/ios/Runner/Info.plist) demonstrate this configuration. Only
-the example requires Flutter 3.38+; the plugin keeps its existing SDK minimum.
+the package and example require Flutter 3.41+ / Dart 3.11+.
 See the [Flutter UIScene migration guide](https://docs.flutter.dev/release/breaking-changes/uiscenedelegate)
 for custom host integrations.
 
@@ -111,17 +111,17 @@ build the example with `flutter build apk --release`, then run
 `./gradlew :video_compress_zero:testDebugUnitTest` from `example/android` (use
 `gradlew.bat` on Windows).
 
-On macOS, disable SwiftPM for the CocoaPods test host with
-`flutter config --no-enable-swift-package-manager`, run `flutter pub get` in
-`example`, then run `ruby scripts_setup_ios_tests.rb` from the repository root.
-This adds the RunnerTests target and enables it in the Runner scheme. Build the
-example with `flutter build ios --simulator`, then run its Runner tests in Xcode.
-The tests cover cancellation/restart, invalid input, path decoding, thumbnail
-timing/orientation, and trimmed exports using a generated video fixture.
+Native iOS regression tests run in a fresh consumer in CI. The repository's
+example remains SPM-only. `scripts_setup_ios_tests.rb <host>/ios` connects the
+existing `example/ios/RunnerTests/RunnerTests.swift` suite to a CocoaPods consumer;
+run `pod install` in that host after wiring the target, then `xcodebuild test`.
+The suite creates synthetic media for thumbnail timing/orientation, trimmed
+exports, invalid arguments and cancellation. It does not require personal videos.
 
-CI also builds a separate host with SwiftPM enabled on the stable Flutter channel.
-The Swift sources live in `ios/video_compress_zero/Sources/video_compress_zero`;
-both the podspec and SwiftPM manifest use this directory.
+CI pins Flutter 3.41.0, 3.41.9, 3.44.0 and 3.47.7 for Dart checks and native
+Android/iOS builds. Both CocoaPods and SPM consumers are built for iOS. Configured
+CI coverage is not a claim that every matrix job has already passed.
+
 
 ### Imports
 
@@ -233,3 +233,35 @@ Contributions are always welcome!
 Inspired by the flutter_ffmpeg library.
 https://github.com/rurico/flutter_video_compress
 
+
+## Compatibility and lifecycle
+
+The supported baseline is Flutter 3.41 / Dart 3.11. The validation matrix pins
+versions through Flutter 3.47.7. Android requires JDK 17 and an AGP-compatible
+Gradle wrapper. AGP 8 uses external Kotlin; AGP 9 conditionally uses built-in
+Kotlin when enabled by the consuming app (Flutter 3.47+). Consumers on AGP 9
+with built-in Kotlin disabled retain external KGP. Every other native plugin
+in the consuming app must also support the selected toolchain.
+
+iOS supports CocoaPods and SPM; the minimum declared by this plugin is iOS 13,
+while the application's Flutter SDK and other plugins may require a newer iOS.
+There is no native macOS implementation.
+
+`requestPermission()` is an optional Android helper for shared video access:
+it requests video permission on API 33+ and storage read permission on older
+Android. Limited video access is accepted; permanently denied access returns
+false. App-private files and picker URI grants do not need broad gallery access.
+The host remains responsible for permission rationale and settings navigation.
+
+`cancelCompression()` now waits for the active compression request to settle.
+The compression future returns null when cancelled; `isCancel` records the
+cancellation after the cancel future completes. Await cancellation before
+starting another compression or clearing cache. Await active work before
+calling `dispose()`; disposing while compressing throws `StateError`.
+Progress subscriptions are closed and channel handlers cleared on disposal.
+
+Android frame rate is applied to every quality strategy and can be capped by
+the source frame rate. Compression always materializes a separate output,
+even when the input codecs can pass through unchanged. Output is not guaranteed
+to be smaller than the source. Original files are only deleted when explicitly
+requested with `deleteOrigin: true` after a successful export.
