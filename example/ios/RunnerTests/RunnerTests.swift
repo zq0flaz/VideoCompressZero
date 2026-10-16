@@ -5,6 +5,54 @@ import AVFoundation
 @testable import video_compress_zero
 
 class RunnerTests: XCTestCase {
+  // Generate real audio inside the test process. No bundled fixture or local
+  // setup script is needed, and a silent video cannot accidentally pass.
+  private func writeAudioFixture(to url: URL) throws {
+    let sampleRate = 44_100.0
+    let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1))
+    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(sampleRate * 6)))
+    buffer.frameLength = buffer.frameCapacity
+    let samples = try XCTUnwrap(buffer.floatChannelData)[0]
+    for index in 0..<Int(buffer.frameLength) {
+      samples[index] = Float(0.2 * sin(2 * Double.pi * 440 * Double(index) / sampleRate))
+    }
+    let file = try AVAudioFile(forWriting: url, settings: format.settings)
+    try file.write(from: buffer)
+  }
+
+  private func fixtureWithAudio() throws -> URL {
+    let videoURL = try fixture()
+    let audioURL = videoURL.deletingPathExtension().appendingPathExtension("caf")
+    let outputURL = videoURL.deletingLastPathComponent().appendingPathComponent(UUID().uuidString + ".mp4")
+    defer {
+      try? FileManager.default.removeItem(at: videoURL)
+      try? FileManager.default.removeItem(at: audioURL)
+    }
+    try writeAudioFixture(to: audioURL)
+    let videoAsset = AVURLAsset(url: videoURL)
+    let audioAsset = AVURLAsset(url: audioURL)
+    let video = try XCTUnwrap(videoAsset.tracks(withMediaType: .video).first)
+    let audio = try XCTUnwrap(audioAsset.tracks(withMediaType: .audio).first)
+    let composition = AVMutableComposition()
+    let outputVideo = try XCTUnwrap(composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid))
+    let outputAudio = try XCTUnwrap(composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid))
+    let range = CMTimeRange(start: .zero, duration: CMTime(seconds: 6, preferredTimescale: 600))
+    try outputVideo.insertTimeRange(range, of: video, at: .zero)
+    outputVideo.preferredTransform = video.preferredTransform
+    try outputAudio.insertTimeRange(range.intersection(audio.timeRange), of: audio, at: .zero)
+    let exporter = try XCTUnwrap(AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality))
+    exporter.outputURL = outputURL
+    exporter.outputFileType = .mp4
+    let done = expectation(description: "fixture with audio encoded")
+    exporter.exportAsynchronously { done.fulfill() }
+    wait(for: [done], timeout: 20)
+    guard exporter.status == .completed else {
+      try? FileManager.default.removeItem(at: outputURL)
+      throw exporter.error ?? NSError(domain: "RunnerTests.fixtureWithAudio", code: 1)
+    }
+    return outputURL
+  }
+
   private func fixture() throws -> URL {
     let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString + ".mp4")
     let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
@@ -69,8 +117,10 @@ class RunnerTests: XCTestCase {
   }
 
   func testTrimUsesSourceRangeOnceForBothAudioModes() throws {
-    let source = try fixture()
+    let source = try fixtureWithAudio()
     defer { try? FileManager.default.removeItem(at: source) }
+    let sourceAsset = AVURLAsset(url: source)
+    XCTAssertFalse(sourceAsset.tracks(withMediaType: .audio).isEmpty, "Fixture must contain audio")
     let plugin = SwiftVideoCompressZeroPlugin()
     for audio in [true, false] {
       let done = expectation(description: "trimmed export")
@@ -83,6 +133,13 @@ class RunnerTests: XCTestCase {
            let duration = info["duration"] as? Double, let path = info["path"] as? String {
           XCTAssertEqual(duration, 3000, accuracy: 150)
           XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+          let output = AVURLAsset(url: URL(fileURLWithPath: path))
+          let audioTracks = output.tracks(withMediaType: .audio)
+          XCTAssertEqual(audioTracks.isEmpty, !audio, "includeAudio must control the exported audio track")
+          if audio, let track = audioTracks.first {
+            XCTAssertEqual(track.timeRange.start.seconds, 0, accuracy: 0.15)
+            XCTAssertEqual(track.timeRange.duration.seconds, 3, accuracy: 0.15)
+          }
           try? FileManager.default.removeItem(atPath: path)
         } else { XCTFail("Expected trimmed output, received \(String(describing: value))") }
         done.fulfill()

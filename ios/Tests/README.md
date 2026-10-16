@@ -3,6 +3,8 @@
 This directory contains unit tests for the iOS native implementation of the VideoCompressZero plugin.
 
 The active regression suite is now in `example/ios/RunnerTests/RunnerTests.swift`.
+Its trim test generates a video with a synthetic audio tone and verifies audio
+retention/removal plus the trimmed audio timeline for both includeAudio modes.
 Run that suite locally in a configured Xcode test host. Local AI test setup
 scripts are not included in the repository or invoked by CI. The example is
 SPM-only; use a separate CocoaPods consumer when testing that packaging mode.

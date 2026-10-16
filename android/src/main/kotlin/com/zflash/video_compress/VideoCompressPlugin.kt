@@ -12,7 +12,6 @@ import com.otaliastudios.transcoder.strategy.RemoveTrackStrategy
 import com.otaliastudios.transcoder.strategy.TrackStrategy
 import com.otaliastudios.transcoder.validator.WriteAlwaysValidator
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import io.flutter.plugin.common.BinaryMessenger
 import com.otaliastudios.transcoder.internal.utils.Logger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -21,7 +20,6 @@ import java.io.File
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import java.util.concurrent.Executors
 import java.util.*
 import java.util.concurrent.Future
 
@@ -31,38 +29,44 @@ import java.util.concurrent.Future
 class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
 
 
-    @Volatile private var _context: Context? = null
-    @Volatile private var _channel: MethodChannel? = null
-    private val TAG = "VideoCompressPlugin"
+    // Each engine owns its worker and sessions. Old callbacks must never be
+    // redirected to a replacement engine after detach/reattach.
+    private class EngineState(val context: Context, val channel: MethodChannel) {
+        val worker = NativeWorker()
+        var active: Session? = null // worker-only
+    }
+    @Volatile private var engine: EngineState? = null
     var channelName = "video_compress_zero"
-
-    private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private class Session(val result: MethodChannel.Result, val dest: String) {
         var future: Future<Void>? = null
         var cancellationRequested = false
         var hasProgress = false
+        @Volatile var finished = false
     }
-    private var active: Session? = null
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        val state = engine
+        if (state == null) result.error("video_compress_zero", "Engine detached", null)
+        else dispatch(state, call, result)
+    }
+
+    private fun dispatch(state: EngineState, call: MethodCall, result: MethodChannel.Result) {
         val reply = SingleReply(result) { callback -> main.post { callback() } }
-        val context = _context
-        val channel = _channel
-        worker.execute {
-            try { handle(call, reply, context, channel) }
+        if (engine !== state || !state.worker.execute {
+            try { handle(call, reply, state) }
             catch (exception: Exception) {
                 reply.error("video_compress_zero", "Native operation failed", exception.message)
             }
+        }) {
+            reply.error("video_compress_zero", "Engine detached", null)
         }
     }
 
-    private fun handle(call: MethodCall, result: MethodChannel.Result, context: Context?, channel: MethodChannel?) {
-
-        if (context == null || channel == null) {
-            result.error("video_compress_zero", "Engine detached", null)
-            return
-        }
+    private fun handle(call: MethodCall, result: MethodChannel.Result, state: EngineState) {
+        val context = state.context
+        val channel = state.channel
+        val worker = state.worker
 
         when (call.method) {
             "getAndroidSdkVersion" -> result.success(Build.VERSION.SDK_INT)
@@ -86,7 +90,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 result.success(Utility(channelName).getMediaInfoJson(context, path!!).toString())
             }
             "deleteAllCache" -> {
-                check(active == null) { "Cannot clear cache while compressing" }
+                check(state.active == null) { "Cannot clear cache while compressing" }
                 result.success(Utility(channelName).deleteAllCache(context));
             }
             "setLogLevel" -> {
@@ -95,7 +99,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 result.success(true);
             }
             "cancelCompression" -> {
-                active?.let { session ->
+                state.active?.let { session ->
                     session.cancellationRequested = true
                     // Cancelling a Future before its callable starts suppresses
                     // Transcoder's terminal listener. Wait for proof of execution.
@@ -112,7 +116,7 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                 val includeAudio = call.argument<Boolean>("includeAudio") ?: true
                 val frameRate = if (call.argument<Int>("frameRate")==null) 30 else call.argument<Int>("frameRate")
 
-                check(active == null) { "Already compressing" }
+                check(state.active == null) { "Already compressing" }
                 require(quality in 0..7 && frameRate != null && frameRate > 0) { "Invalid quality or frame rate" }
                 require(startTime == null || startTime >= 0) { "Invalid start time" }
                 require(duration == null || duration > 0) { "Invalid duration" }
@@ -180,7 +184,8 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
 
 
                 val session = Session(result, destPath)
-                active = session
+                worker.retainOperation()
+                state.active = session
                 try {
                     session.future = Transcoder.into(destPath)
                         // Always materialize an output, including pass-through inputs
@@ -192,56 +197,60 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
                         .setListener(object : TranscoderListener {
                             override fun onTranscodeProgress(progress: Double) {
                                 worker.execute {
-                                    if (active === session) {
+                                    if (state.active === session) {
                                         session.hasProgress = true
                                         if (session.cancellationRequested) session.future?.cancel(true)
                                         else main.post {
-                                            if (_channel === channel) channel.invokeMethod("updateProgress", progress * 100)
+                                            if (engine === state && !session.finished) channel.invokeMethod("updateProgress", progress * 100)
                                         }
                                     }
                                 }
                             }
                             override fun onTranscodeCompleted(successCode: Int) {
                                 worker.execute {
-                                    if (active !== session) { File(destPath).delete(); return@execute }
-                                    active = null
-                                    if (session.cancellationRequested) {
-                                        File(destPath).delete()
-                                        result.success(null)
-                                        return@execute
-                                    }
                                     try {
+                                        if (state.active !== session) { File(destPath).delete(); return@execute }
+                                        if (session.cancellationRequested) {
+                                            File(destPath).delete()
+                                            result.success(null)
+                                            return@execute
+                                        }
                                         val json = Utility(channelName).getMediaInfoJson(context, destPath)
                                         json.put("isCancel", false)
                                         if (deleteOrigin && sourceUri(path).scheme == "file") File(sourceUri(path).path!!).delete()
-                                        main.post { if (_channel === channel) channel.invokeMethod("updateProgress", 100.0) }
+                                        main.post { if (engine === state) channel.invokeMethod("updateProgress", 100.0) }
                                         result.success(json.toString())
                                     } catch (exception: Exception) {
                                         File(destPath).delete()
                                         result.error("video_compress_zero", "Output metadata failed", exception.message)
+                                    } finally {
+                                        finishSession(state, session)
                                     }
                                 }
                             }
                             override fun onTranscodeCanceled() {
                                 worker.execute {
-                                    File(destPath).delete()
-                                    if (active === session) { active = null; result.success(null) }
+                                    try {
+                                        File(destPath).delete()
+                                        if (state.active === session) result.success(null)
+                                    } finally { finishSession(state, session) }
                                 }
                             }
                             override fun onTranscodeFailed(exception: Throwable) {
                                 worker.execute {
-                                    File(destPath).delete()
-                                    if (active === session) {
-                                        active = null
-                                        if (session.cancellationRequested) result.success(null)
-                                        else result.error("video_compress_transcode", "Failed to transcode video", exception.message)
-                                    }
+                                    try {
+                                        File(destPath).delete()
+                                        if (state.active === session) {
+                                            if (session.cancellationRequested) result.success(null)
+                                            else result.error("video_compress_transcode", "Failed to transcode video", exception.message)
+                                        }
+                                    } finally { finishSession(state, session) }
                                 }
                             }
                         }).transcode()
                 } catch (exception: Exception) {
-                    active = null
-                    File(destPath).delete()
+                    try { File(destPath).delete() }
+                    finally { finishSession(state, session) }
                     throw exception
                 }
             }
@@ -251,29 +260,35 @@ class VideoCompressPlugin : MethodCallHandler, FlutterPlugin {
         }
     }
 
+    private fun finishSession(state: EngineState, session: Session) {
+        if (state.active === session) {
+            session.finished = true
+            state.active = null
+            state.worker.releaseOperation()
+        }
+    }
+
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        init(binding.applicationContext, binding.binaryMessenger)
+        val channel = MethodChannel(binding.binaryMessenger, channelName)
+        val state = EngineState(binding.applicationContext, channel)
+        engine = state
+        channel.setMethodCallHandler { call, result -> dispatch(state, call, result) }
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        worker.execute {
-            active?.let { session ->
+        val state = engine ?: return
+        engine = null
+        state.channel.setMethodCallHandler(null)
+        state.worker.execute {
+            state.worker.detach()
+            state.active?.let { session ->
                 session.cancellationRequested = true
                 if (session.hasProgress) session.future?.cancel(true)
                 session.result.error("video_compress_zero", "Engine detached", null)
             }
-            // Keep ownership until the listener confirms the writer stopped.
+            // A retained session keeps the worker alive until its terminal
+            // callback removes partial output and calls finishSession.
         }
-        _channel?.setMethodCallHandler(null)
-        _context = null
-        _channel = null
-    }
-
-    private fun init(context: Context, messenger: BinaryMessenger) {
-        val channel = MethodChannel(messenger, channelName)
-        channel.setMethodCallHandler(this)
-        _context = context
-        _channel = channel
     }
 
     private fun sourceUri(path: String): Uri {
