@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Run real native integration tests automatically on Android API 29/35 emulators and an iOS simulator.
+- Add committed synthetic audio/video fixtures, debug-only example media inspection, and a local device runner.
+
 - Shut down detached Android workers after native cleanup; isolate callbacks across engine attachments.
 - Test iOS audio retention/removal and trim timing with an in-process synthetic audio fixture.
 - Set the supported baseline to Flutter 3.41 / Dart 3.11.

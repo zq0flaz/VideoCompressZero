@@ -1,0 +1,87 @@
+name: Native integration tests
+
+on:
+  push:
+    branches: [master, chore/flutter-latest-compatibility]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.7'
+
+jobs:
+  android:
+    name: Android emulator API ${{ matrix.api }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+        working-directory: example
+      - name: Build integration APK before booting emulator
+        run: flutter build apk --debug --target integration_test/video_compress_test.dart
+        working-directory: example
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: python3 tool/run_integration_tests.py --platform android --device emulator-5554 --skip-pub-get
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-android-api-${{ matrix.api }}
+          path: example/build/integration_results/
+          if-no-files-found: warn
+
+  ios:
+    name: iOS simulator (SwiftPM)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter config --enable-swift-package-manager
+      - name: Resolve dependencies
+        run: flutter pub get
+        working-directory: example
+      - name: Boot available iPhone simulator and run native tests
+        run: python3 tool/run_integration_tests.py --platform ios --skip-pub-get
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-ios-swiftpm
+          path: example/build/integration_results/
+          if-no-files-found: warn

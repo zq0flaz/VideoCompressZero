@@ -120,9 +120,29 @@ invalid arguments and cancellation. It does not require personal videos.
 CI pins Flutter 3.41.0, 3.41.9, 3.44.0 and 3.47.7 for Dart checks and native
 Android/iOS builds. Both CocoaPods and SPM consumers are built for iOS. Configured
 CI covers Dart checks, Android builds/JVM unit tests, and iOS consumer builds.
-Native iOS runtime tests and the custom AGP 9 toolchain checks are local-only;
-they are not run by this workflow. Configured coverage is not a claim that every
+The native iOS XCTest suite and custom AGP 9 toolchain checks remain local-only;
+they are not run by this build workflow. Configured coverage is not a claim that every
 matrix job has already passed.
+
+
+### Automatic emulator and simulator integration tests
+
+The separate `Native integration tests` workflow runs the actual plugin on
+Android API 29/35 emulators and an available iPhone simulator (SwiftPM).
+It runs on branch pushes, pull requests to master, and manual workflow dispatch.
+All required tests, synthetic media, and automation are committed; no local AI
+setup scripts or personal videos are needed. Logs are uploaded as CI artifacts.
+
+Run locally from the repository root:
+
+```sh
+python3 tool/run_integration_tests.py --platform android
+python3 tool/run_integration_tests.py --platform ios
+```
+
+The runner reuses a booted emulator/simulator or launches an installed one, and
+stops only devices it started. iOS execution requires macOS and Xcode.
+See [integration test setup and coverage](example/integration_test/README.md).
 
 
 ### Imports

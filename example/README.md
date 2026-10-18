@@ -48,3 +48,18 @@ Use a synthetic test video rather than personal media:
 Automated tests use fake media paths and operations. They cover state and UI
 behavior without accessing a real photo library. They do not replace device
 checks of native encoding, playback, or Photos permissions.
+
+
+## Automatic native integration tests
+
+From the repository root, run:
+
+```sh
+python3 tool/run_integration_tests.py --platform android
+python3 tool/run_integration_tests.py --platform ios
+```
+
+Use `--device <adb-serial-or-simulator-UDID>` to select a running target or
+`--avd <name>` to select an installed Android AVD. The runner uses the local FVM
+SDK when installed, otherwise Flutter on PATH. Use `--flutter <executable>` to
+override it. See [coverage and prerequisites](integration_test/README.md).
