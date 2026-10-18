@@ -130,6 +130,9 @@ public class SwiftVideoCompressZeroPlugin: NSObject, FlutterPlugin, FlutterStrea
                 exporter.outputFileType = .mp4
                 exporter.shouldOptimizeForNetworkUse = true
                 let videoComposition = AVMutableVideoComposition(propertiesOf: composition)
+                // The convenience initializer otherwise preserves the source
+                // track's timing and ignores the requested output frame rate.
+                videoComposition.sourceTrackIDForFrameTiming = kCMPersistentTrackID_Invalid
                 videoComposition.frameDuration = CMTime(value: 1, timescale: Int32(frameRate))
                 exporter.videoComposition = videoComposition
                 DispatchQueue.main.async {
